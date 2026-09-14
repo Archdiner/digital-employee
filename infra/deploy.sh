@@ -73,15 +73,20 @@ infra() {
 
   say "postgres $PG"
   if ! az postgres flexible-server show -n "$PG" -g "$RG" -o none 2>/dev/null; then
-    PG_PASS=$(openssl rand -base64 30 | tr -dc 'A-Za-z0-9' | head -c 32)
     az postgres flexible-server create -n "$PG" -g "$RG" -l "$LOC" \
       --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
-      --admin-user "$PG_USER" --admin-password "$PG_PASS" \
+      --admin-user "$PG_USER" --admin-password "$(openssl rand -base64 30 | tr -dc 'A-Za-z0-9' | head -c 32)" \
       --public-access 0.0.0.0 --yes -o none
-    az postgres flexible-server db create -g "$RG" -s "$PG" -d "$PG_DB" -o none
+  fi
+  az postgres flexible-server db show -g "$RG" --server-name "$PG" --name "$PG_DB" -o none 2>/dev/null \
+    || az postgres flexible-server db create -g "$RG" --server-name "$PG" --name "$PG_DB" -o none
+  if ! az keyvault secret show --vault-name "$KV" -n database-url -o none 2>/dev/null; then
+    PG_PASS=$(openssl rand -base64 30 | tr -dc 'A-Za-z0-9' | head -c 32)
+    az postgres flexible-server update -n "$PG" -g "$RG" --admin-password "$PG_PASS" -o none
     az keyvault secret set --vault-name "$KV" -n database-url \
       --value "postgresql://${PG_USER}:${PG_PASS}@${PG}.postgres.database.azure.com:5432/${PG_DB}?sslmode=require" -o none
   fi
+
   say "admin password for the operator UI (Key Vault secret admin-password)"
   az keyvault secret show --vault-name "$KV" -n admin-password -o none 2>/dev/null \
     || az keyvault secret set --vault-name "$KV" -n admin-password --value "$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24)" -o none

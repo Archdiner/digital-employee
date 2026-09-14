@@ -92,7 +92,7 @@ infra() {
     || az keyvault secret set --vault-name "$KV" -n admin-password --value "$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24)" -o none
 
   MYIP=$(curl -s https://ifconfig.me || true)
-  [ -n "$MYIP" ] && az postgres flexible-server firewall-rule create -g "$RG" -n "$PG" -r dev-"$(whoami)" \
+  [ -n "$MYIP" ] && az postgres flexible-server firewall-rule create -g "$RG" -s "$PG" -n dev-"$(whoami)" \
       --start-ip-address "$MYIP" --end-ip-address "$MYIP" -o none 2>/dev/null || true
   say "infra done"
 }

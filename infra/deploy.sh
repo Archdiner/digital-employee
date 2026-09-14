@@ -2,7 +2,7 @@
 # Digital Employee - Azure provisioning. Idempotent. Plain az cli so IT can read what it installs.
 #
 #   ./infra/deploy.sh infra   # resource group, identity, roles, Key Vault, Postgres, Container Apps env, model deployment
-#   ./infra/deploy.sh app     # build image in ACR and create/update the Container App
+#   ./infra/deploy.sh app     # build image in ACR and create/update the Container App (SKIP_BUILD=1 to reuse the image for TAG)
 #   ./infra/deploy.sh         # both
 #
 # Every name below is a variable so a second firm or region is a config change.
@@ -98,8 +98,10 @@ infra() {
 }
 
 app() {
-  say "build $IMAGE (cloud build, no local docker needed)"
-  az acr build -r "$ACR" -g "$ACR_RG" -t "digital-employee:${TAG}" -t "digital-employee:latest" . -o none
+  if [ -z "${SKIP_BUILD:-}" ]; then
+    say "build $IMAGE (cloud build, no local docker needed)"
+    az acr build -r "$ACR" -g "$ACR_RG" -t "digital-employee:${TAG}" -t "digital-employee:latest" . -o none
+  fi
 
   ID_RES=$(az identity show -n "$ID" -g "$RG" --query id -o tsv)
   ID_CLIENT=$(az identity show -n "$ID" -g "$RG" --query clientId -o tsv)

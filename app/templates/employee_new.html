@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block crumb %}<span class="crumb">/ new employee</span>{% endblock %}{% block body %}
+<h1>New employee</h1>
+<form method="post" action="/employees">
+<div class="card"><div class="row">
+  <div><label>Name</label><input type="text" name="name" required placeholder="Summer Analyst"></div>
+  <div><label>Firm</label><input type="text" name="firm" required placeholder="Investcorp"></div>
+  <div><label>Model</label><select name="model">{% for m in models %}<option>{{m}}</option>{% endfor %}</select></div>
+</div>
+<label>Role, one line: the job</label><input type="text" name="role" required placeholder="Write the quarterly portfolio review for the CFO">
+<label>Firm notes: how the firm works. Funds, companies, terms, where files and numbers live.</label>
+<textarea class="tall" name="firm_notes" placeholder="Funds: Fund III (2019 vintage, 8 companies), Fund IV.
+Quarterly numbers: the management accounts pack per company, file ending _FINAL, Summary tab.
+EBITDA means adjusted EBITDA as reported in the pack unless stated.
+Past reviews: uploaded here as 'past review'. Match their layout."></textarea>
+</div>
+<div class="card"><h2 style="margin-top:0">Initial skills</h2>
+<p class="small muted">General finance skills, written once and reused everywhere. The employee gets its own copy; what it learns on the job stays with the firm.</p>
+{% for s in general %}<label class="check"><input type="checkbox" name="skill_ids" value="{{s.id}}" checked> <span><b>{{s.name}}</b><br><span class="muted small">{{s.when_to_use}}</span></span></label>{% endfor %}
+<div class="row" style="margin-top:14px"><div><label>Custom skill name (optional)</label><input type="text" name="custom_skill_name" placeholder="investcorp-review-format"></div></div>
+<label>Custom skill body. First line: when to use it.</label><textarea class="tall" name="custom_skill_body" placeholder="Use when writing any document for Investcorp.
+..."></textarea>
+</div>
+<button type="submit">Create employee</button>
+</form>
+{% endblock %}

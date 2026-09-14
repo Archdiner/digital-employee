@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block body %}
+<h1>Employees <a class="btn" style="float:right" href="/employees/new">New employee</a></h1>
+{% if not employees %}<div class="card muted">No employees yet. Create one, give it firm notes and skills, upload the firm's documents, then ask for work.</div>{% endif %}
+{% for e in employees %}
+<div class="card"><b><a href="/employees/{{e.id}}">{{e.name}}</a></b> · {{e.role}} · {{e.firm}}
+<div class="small muted">{{e.docs}} documents · {{e.runs}} runs · model {{e.model}}</div></div>
+{% endfor %}
+{% endblock %}

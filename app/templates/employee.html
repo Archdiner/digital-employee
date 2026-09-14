@@ -1,0 +1,45 @@
+{% extends "base.html" %}{% block title %}{{emp.name}} · {{emp.firm}}{% endblock %}
+{% block crumb %}<span class="crumb">/ {{emp.name}} · {{emp.firm}}</span>{% endblock %}{% block body %}
+<h1>{{emp.name}} <span class="muted" style="font-weight:400">· {{emp.role}}</span></h1>
+
+<div class="card"><h2 style="margin-top:0">Ask for work</h2>
+<form method="post" action="/employees/{{emp.id}}/runs">
+<textarea name="task" required placeholder="Write the Q2 2026 quarterly portfolio review for Fund III."></textarea>
+<div style="margin-top:8px"><button type="submit">Start</button> <span class="small muted">It reads its skills, the firm notes and the documents, then writes a .docx. If it needs something it asks here.</span></div>
+</form></div>
+
+<h2>Runs</h2>
+<div class="card">{% if not runs %}<span class="muted">None yet.</span>{% endif %}
+<table>{% for r in runs %}<tr><td><a href="/runs/{{r.id}}">#{{r.id}}</a></td><td>{{r.task[:120]}}</td><td><span class="pill {{r.status}}">{{r.status}}</span></td>
+<td class="small muted">{{r.created_at.strftime('%d %b %H:%M')}}</td><td>{% if r.output_document_id %}<a href="/documents/{{r.output_document_id}}">download</a>{% endif %}</td></tr>{% endfor %}</table></div>
+
+<h2 id="documents">Documents <span class="muted small">· <a href="/employees/{{emp.id}}/facts">{{nfacts}} facts in the store</a></span></h2>
+<div class="card">
+<form method="post" action="/employees/{{emp.id}}/documents" enctype="multipart/form-data" class="row" style="align-items:flex-end">
+  <div><label>Files (.docx .xlsx .pdf .txt .csv)</label><input type="file" name="files" multiple required></div>
+  <div style="flex:0 1 220px"><label>Kind</label><select name="kind"><option value="source">source (numbers come from here)</option><option value="past_review">past review (layout, tone)</option></select></div>
+  <div style="flex:0 0 auto"><button type="submit">Upload</button></div>
+</form>
+<p class="small muted">Facts are extracted in the background after upload. Refresh to see counts.</p>
+{% if docs %}<table><tr><th>#</th><th>file</th><th>kind</th><th>date</th><th>text</th><th>facts</th><th></th></tr>
+{% for d in docs %}<tr><td>{{d.id}}</td><td><a href="/documents/{{d.id}}">{{d.filename}}</a></td><td>{{d.kind}}</td><td>{{d.doc_date or '—'}}</td><td>{{ '{:,}'.format(d.chars or 0) }} chars</td><td>{{d.facts}}</td>
+<td style="white-space:nowrap">{% if d.kind != 'output' %}<form method="post" action="/employees/{{emp.id}}/documents/{{d.id}}/reextract" style="display:inline"><button class="quiet" style="padding:4px 8px;font-size:12px">re-extract</button></form>{% endif %}
+<form method="post" action="/employees/{{emp.id}}/documents/{{d.id}}/delete" style="display:inline" onsubmit="return confirm('Delete {{d.filename}} and its facts?')"><button class="danger">delete</button></form></td></tr>{% endfor %}</table>{% endif %}
+</div>
+
+<h2 id="skills">Skills</h2>
+<div class="card">
+{% for s in skills %}<details class="skill"><summary><b>{{s.name}}</b> <span class="muted small">— {{s.body.split('\n')[0]}}</span></summary>
+<form method="post" action="/employees/{{emp.id}}/skills"><input type="hidden" name="name" value="{{s.name}}"><textarea class="tall" name="body">{{s.body}}</textarea>
+<div style="margin-top:6px"><button class="quiet">Save</button> <button class="danger" formaction="/employees/{{emp.id}}/skills/{{s.id}}/delete" formnovalidate onclick="return confirm('Remove skill {{s.name}}?')">remove</button></div></form></details>{% endfor %}
+<details class="skill"><summary class="muted">Add a skill</summary>
+<form method="post" action="/employees/{{emp.id}}/skills"><label>Name</label><input type="text" name="name" required><label>Body. First line: when to use it.</label><textarea class="tall" name="body" required></textarea><div style="margin-top:6px"><button>Add</button></div></form></details>
+</div>
+
+<h2>Firm notes and settings</h2>
+<div class="card"><form method="post" action="/employees/{{emp.id}}/settings">
+<label>Role</label><input type="text" name="role" value="{{emp.role}}">
+<label>Firm notes</label><textarea class="tall" name="firm_notes">{{emp.firm_notes}}</textarea>
+<label>Model</label><select name="model">{% for m in models %}<option {% if m == emp.model %}selected{% endif %}>{{m}}</option>{% endfor %}{% if emp.model not in models %}<option selected>{{emp.model}}</option>{% endif %}</select>
+<div style="margin-top:10px"><button class="quiet">Save</button></div></form></div>
+{% endblock %}

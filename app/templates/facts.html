@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block crumb %}<span class="crumb">/ <a href="/employees/{{emp.id}}">{{emp.name}}</a> / facts</span>{% endblock %}{% block body %}
+<h1>Fact store</h1>
+<form method="get" class="card row" style="align-items:flex-end"><div><label>Search</label><input type="search" name="q" value="{{q}}" placeholder="EBITDA Q2 2026"></div><div style="flex:0 0 auto"><button>Search</button></div></form>
+<div class="card"><table><tr><th>id</th><th>entity</th><th>metric</th><th>period</th><th>value</th><th>source</th></tr>
+{% for f in rows %}<tr><td>{{f.id}}</td><td>{{f.entity or '—'}}</td><td>{{f.metric}}</td><td>{{f.period or '—'}}</td><td><b>{{f.value}}</b> {{f.unit or ''}}</td>
+<td class="small muted">{% if f.document_id %}{{f.filename}} · {{f.source_location or ''}}{% else %}computed: {{f.formula}}{% endif %} {% if f.doc_date %}· {{f.doc_date}}{% endif %}</td></tr>{% endfor %}</table>
+{% if not rows %}<span class="muted">No facts{% if q %} match{% endif %}.</span>{% endif %}</div>
+{% endblock %}

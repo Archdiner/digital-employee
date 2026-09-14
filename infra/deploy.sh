@@ -76,8 +76,9 @@ infra() {
     PG_PASS=$(openssl rand -base64 30 | tr -dc 'A-Za-z0-9' | head -c 32)
     az postgres flexible-server create -n "$PG" -g "$RG" -l "$LOC" \
       --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
-      --admin-user "$PG_USER" --admin-password "$PG_PASS" --database-name "$PG_DB" \
+      --admin-user "$PG_USER" --admin-password "$PG_PASS" \
       --public-access 0.0.0.0 --yes -o none
+    az postgres flexible-server db create -g "$RG" -s "$PG" -d "$PG_DB" -o none
     az keyvault secret set --vault-name "$KV" -n database-url \
       --value "postgresql://${PG_USER}:${PG_PASS}@${PG}.postgres.database.azure.com:5432/${PG_DB}?sslmode=require" -o none
   fi

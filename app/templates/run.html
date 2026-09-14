@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% block crumb %}<span class="crumb">/ <a href="/employees/{{r.employee_id}}">{{r.emp_name}}</a> / run #{{r.id}}</span>{% endblock %}{% block body %}
+{% if r.status in ('running',) %}<meta http-equiv="refresh" content="6">{% endif %}
+<h1>Run #{{r.id}} <span class="pill {{r.status}}">{{r.status}}</span></h1>
+<div class="card"><b>Task</b><div>{{r.task}}</div></div>
+
+{% if r.status == 'waiting' %}
+<div class="card question"><b>It has a question</b><pre class="note">{{r.question}}</pre>
+<form method="post" action="/runs/{{r.id}}/answer"><textarea name="answer" required placeholder="Answer here. Work resumes when you send it."></textarea><div style="margin-top:8px"><button>Send answer</button></div></form></div>
+{% endif %}
+
+{% if out %}<div class="card"><b>Document</b> · <a class="btn" href="/documents/{{out.id}}">Download {{out.filename}}</a></div>{% endif %}
+{% if r.notes %}<div class="card"><b>Its note to the operator</b><pre class="note">{{r.notes}}</pre></div>{% endif %}
+{% if r.error %}<div class="card" style="border-color:var(--bad)"><b>Error</b><pre class="note">{{r.error}}</pre><form method="post" action="/runs/{{r.id}}/retry"><button class="quiet">Retry from where it stopped</button></form></div>{% endif %}
+{% if r.status == 'running' %}<div class="card muted">Working. This page refreshes itself.</div>{% endif %}
+
+{% if r.status in ('done','failed') %}
+<div class="card"><b>Where did this number come from?</b>
+<form method="post" action="/runs/{{r.id}}/explain"><input type="text" name="question" required placeholder="Where did the Q2 EBITDA for Acme come from?"><div style="margin-top:8px"><button class="quiet">Ask</button></div></form>
+{% if explained %}<pre class="note" style="margin-top:12px">{{explained}}</pre>{% endif %}</div>
+{% endif %}
+
+<details class="log card"><summary class="muted">Work log ({{log|length}} entries). The client never sees this.</summary>
+<table>{% for l in log %}<tr><td class="small muted" style="white-space:nowrap">{{l.at.strftime('%H:%M:%S')}}</td><td><b>{{l.action}}</b></td><td><pre style="margin:0;white-space:pre-wrap">{{l.detail | tojson }}</pre></td></tr>{% endfor %}</table></details>
+{% endblock %}

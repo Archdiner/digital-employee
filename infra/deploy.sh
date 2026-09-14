@@ -82,6 +82,10 @@ infra() {
     az keyvault secret set --vault-name "$KV" -n database-url \
       --value "postgresql://${PG_USER}:${PG_PASS}@${PG}.postgres.database.azure.com:5432/${PG_DB}?sslmode=require" -o none
   fi
+  say "admin password for the operator UI (Key Vault secret admin-password)"
+  az keyvault secret show --vault-name "$KV" -n admin-password -o none 2>/dev/null \
+    || az keyvault secret set --vault-name "$KV" -n admin-password --value "$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24)" -o none
+
   MYIP=$(curl -s https://ifconfig.me || true)
   [ -n "$MYIP" ] && az postgres flexible-server firewall-rule create -g "$RG" -n "$PG" -r dev-"$(whoami)" \
       --start-ip-address "$MYIP" --end-ip-address "$MYIP" -o none 2>/dev/null || true
@@ -102,7 +106,8 @@ app() {
       --registry-server "${ACR}.azurecr.io" --registry-identity "$ID_RES" --user-assigned "$ID_RES" \
       --ingress external --target-port 8080 --cpu 0.5 --memory 1Gi --min-replicas 1 --max-replicas 1 \
       --secrets "database-url=keyvaultref:${KV_URI}secrets/database-url,identityref:${ID_RES}" \
-      --env-vars DATABASE_URL=secretref:database-url AZURE_CLIENT_ID="$ID_CLIENT" \
+                "admin-password=keyvaultref:${KV_URI}secrets/admin-password,identityref:${ID_RES}" \
+      --env-vars DATABASE_URL=secretref:database-url ADMIN_PASSWORD=secretref:admin-password AZURE_CLIENT_ID="$ID_CLIENT" \
                  AZURE_OPENAI_RESOURCE="$FOUNDRY" MODEL="$MODEL" PORT=8080 -o none
   else
     say "update container app $APP"

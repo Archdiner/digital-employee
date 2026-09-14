@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.docx
+!tests/fixtures/*.docx
+.DS_Store

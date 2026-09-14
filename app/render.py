@@ -6,7 +6,7 @@ import re
 from docx import Document
 from docx.shared import Pt
 
-FACT_REF = re.compile(r"\{\{\s*fact:(\d+)\s*\}\}")
+FACT_REF = re.compile(r"\{\{\s*fact:(\d+)(?::(v))?\s*\}\}")  # {{fact:12}} = value + unit, {{fact:12:v}} = value only
 # Numbers that are labels, not facts: years, quarters/halves, FY labels, list numbering, ordinals.
 LABEL_OK = re.compile(r"^(19|20)\d\d$|^(q|h)[1-4]$|^fy\d{2,4}$|^\d{1,2}\.$|^\d{1,2}(st|nd|rd|th)$", re.I)
 MONTH = re.compile(r"\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", re.I)
@@ -17,12 +17,28 @@ class ReviewError(Exception):
     pass
 
 
-def fact_text(f):
-    v = f["value"]
-    u = f.get("unit") or ""
-    if not u or u in v:
+PLAIN_NUMBER = re.compile(r"^\(?-?\d+(\.\d+)?\)?$")
+
+
+def fact_value(f):
+    """The stored value, with thousands separators added when the source wrote a bare number. Precision is never changed."""
+    v = f["value"].strip()
+    if PLAIN_NUMBER.match(v) and "," not in v:
+        neg = v.startswith("(")
+        num = v.strip("()")
+        whole, _, frac = num.partition(".")
+        if abs(int(whole)) >= 1000:
+            num = f"{int(whole):,}" + (f".{frac}" if frac else "")
+            v = f"({num})" if neg else num
+    return v
+
+
+def fact_text(f, bare=False):
+    v = fact_value(f)
+    u = (f.get("unit") or "").strip()
+    if bare or not u or u in v:
         return v
-    return f"{v}{u}" if u in ("%", "x", "bps") else f"{v} {u}"
+    return f"{v}{u}" if u in ("%", "x", "bps", "pts", "pp") else f"{v} {u}"
 
 
 MARK = "\x00"  # marks stored values so the stray-number check skips them
@@ -36,7 +52,7 @@ def substitute(text, get_fact, cited, problems, where):
             problems.append(f"{where}: fact {fid} does not exist")
             return "[missing fact]"
         cited.add(fid)
-        return MARK + fact_text(f) + MARK
+        return MARK + fact_text(f, bare=m.group(2) == "v") + MARK
 
     out = FACT_REF.sub(repl, text)
     scan = re.sub(MARK + "[^" + MARK + "]*" + MARK, " ", out)

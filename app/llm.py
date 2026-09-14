@@ -21,7 +21,7 @@ def client() -> AzureOpenAI:
     if _client is None:
         token = get_bearer_token_provider(DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
         _client = AzureOpenAI(
-            azure_endpoint=f"https://{RESOURCE}.openai.azure.com",
+            base_url=f"https://{RESOURCE}.openai.azure.com/openai/v1/",
             azure_ad_token_provider=token,
             api_version="preview",
             timeout=600,

@@ -9,6 +9,7 @@ from docx.shared import Pt
 FACT_REF = re.compile(r"\{\{\s*fact:(\d+)\s*\}\}")
 # Numbers that are labels, not facts: years, quarters/halves, FY labels, list numbering, ordinals.
 LABEL_OK = re.compile(r"^(19|20)\d\d$|^(q|h)[1-4]$|^fy\d{2,4}$|^\d{1,2}\.$|^\d{1,2}(st|nd|rd|th)$", re.I)
+MONTH = re.compile(r"\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", re.I)
 NUMBER = re.compile(r"(?<![a-z])[-(]?\d[\d,]*\.?\d*%?\)?(st|nd|rd|th)?", re.I)
 
 
@@ -24,6 +25,9 @@ def fact_text(f):
     return f"{v}{u}" if u in ("%", "x", "bps") else f"{v} {u}"
 
 
+MARK = "\x00"  # marks stored values so the stray-number check skips them
+
+
 def substitute(text, get_fact, cited, problems, where):
     def repl(m):
         fid = int(m.group(1))
@@ -32,18 +36,21 @@ def substitute(text, get_fact, cited, problems, where):
             problems.append(f"{where}: fact {fid} does not exist")
             return "[missing fact]"
         cited.add(fid)
-        return "⁠" + fact_text(f) + "⁠"  # word-joiners mark stored values so the checker skips them
+        return MARK + fact_text(f) + MARK
 
     out = FACT_REF.sub(repl, text)
-    # strip the marked spans before scanning for stray numbers
-    scan = re.sub("⁠[^⁠]*⁠", " ", out)
+    scan = re.sub(MARK + "[^" + MARK + "]*" + MARK, " ", out)
     for m in NUMBER.finditer(scan):
-        tok = m.group(0).strip("()")
+        raw = m.group(0).strip("()")
+        tok = raw.rstrip(".,;:")
         prev = scan[max(0, m.start() - 1) : m.start()]
-        if prev in ("Q", "q", "H", "h") or LABEL_OK.match(tok) or LABEL_OK.match(prev + tok):
+        after = scan[m.end() : m.end() + 12]
+        if prev in ("Q", "q", "H", "h") or LABEL_OK.match(raw) or LABEL_OK.match(tok) or LABEL_OK.match(prev + tok):
+            continue
+        if tok.isdigit() and 1 <= int(tok) <= 31 and MONTH.match(after):  # "30 June 2026" is a date
             continue
         problems.append(f"{where}: '{tok}' is a number that is not a fact reference. Use {{{{fact:ID}}}} or the compute tool.")
-    return out.replace("⁠", "")
+    return out.replace(MARK, "")
 
 
 def build(spec, get_fact):

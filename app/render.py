@@ -8,7 +8,7 @@ from docx.shared import Pt
 
 FACT_REF = re.compile(r"\{\{\s*fact:(\d+)(?::(v))?\s*\}\}")  # {{fact:12}} = value + unit, {{fact:12:v}} = value only
 # Numbers that are labels, not facts: years, quarters/halves, FY labels, list numbering, ordinals.
-LABEL_OK = re.compile(r"^(19|20)\d\d$|^(q|h)[1-4]$|^fy\d{2,4}$|^\d{1,2}\.$|^\d{1,2}(st|nd|rd|th)$", re.I)
+LABEL_OK = re.compile(r"^0+$|^(19|20)\d\d$|^(q|h)[1-4]$|^fy\d{2,4}$|^\d{1,2}\.$|^\d{1,2}(st|nd|rd|th)$", re.I)
 MONTH = re.compile(r"\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", re.I)
 NUMBER = re.compile(r"(?<![a-z])[-(]?\d[\d,]*\.?\d*%?\)?(st|nd|rd|th)?", re.I)
 

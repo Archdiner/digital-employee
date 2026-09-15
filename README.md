@@ -43,6 +43,34 @@ Everything is plain `az` commands in one file. Names, region and model are varia
 Azure OpenAI `gpt-5.6-sol`, Entra auth, no keys. Azure OpenAI is a Microsoft first-party service under
 Microsoft's DPA/BAA. Model is a per-employee setting; any Azure OpenAI deployment works.
 
+## Linked accounts (Google Workspace, Microsoft 365)
+
+Per employee, under "Linked accounts" in the UI. Plain OAuth; tokens in the `connections` table, refreshed on use.
+Once linked the employee gets seven more tools: search, read, import (into the fact store), create a document
+(docx / pptx / xlsx, or native Google Doc / Sheet / Slides, saved here or in Drive / OneDrive), update a range in an
+existing shared spreadsheet, append to an existing shared document, share. Every string it writes anywhere passes
+through the same `{{fact:ID}}` check as the review.
+
+**Google** needs an OAuth client (one-time, ~5 minutes, in the getzybit.com Workspace):
+
+1. console.cloud.google.com → new project `zybit-digital-employee`.
+2. APIs & Services → Library → enable **Google Drive API, Google Docs API, Google Sheets API, Google Slides API**.
+3. OAuth consent screen → User type **Internal** → app name "Digital Employee" → save.
+4. Credentials → Create credentials → OAuth client ID → **Web application** → authorised redirect URIs:
+   `http://localhost:8080/connect/google/callback` and
+   `https://emp-app.jollymushroom-dec64f0f.centralus.azurecontainerapps.io/connect/google/callback`.
+5. Store the pair and redeploy:
+   ```sh
+   az keyvault secret set --vault-name zybit-emp-kv -n google-client-id --value '<client id>'
+   az keyvault secret set --vault-name zybit-emp-kv -n google-client-secret --value '<client secret>'
+   SKIP_BUILD=1 ./infra/deploy.sh app
+   ```
+
+**Microsoft** is configured: app registration `cd3458ee-…` has delegated `Files.ReadWrite.All`, `Sites.ReadWrite.All`
+with tenant-wide admin consent in the zybit tenant; the client secret is in Key Vault (`graph-client-secret`).
+The zybit Entra tenant has **no SharePoint Online licence**, so OneDrive/SharePoint/Teams do not exist there; test
+Microsoft 365 against a licensed tenant (a Microsoft 365 Business trial on this tenant, or the customer's).
+
 ## Connecting a firm's documents
 
 App registration `Zybit Digital Employee` (multi-tenant, application permissions `Sites.Read.All` and
@@ -57,5 +85,6 @@ Until then, documents are uploaded in the operator UI.
 ## Build order and what is done
 
 1. Fact store ✓  2. Document output ✓  3. Skills + firm notes ✓  4. Work log ✓
-5. Teams with ask-and-wait: the ask-and-wait primitive exists (`runs.status = waiting`); the Teams transport does not yet.
+5. Teams with ask-and-wait: the ask-and-wait primitive exists (`runs.status = waiting`); Drive/OneDrive/SharePoint file
+   access exists; the Teams bot transport does not yet (needs a licensed Microsoft 365 tenant to build against).
 6. Save edits: table exists, nothing writes to it.  7. Test set  8. Skill updates: not started, by design.

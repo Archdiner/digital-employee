@@ -361,7 +361,7 @@ def run(run_id: int, max_turns: int = 60):
     if not state:
         state = [{"role": "user", "content": r["task"]}]
         db.log(run_id, "start", task=r["task"], model=emp["model"])
-    db.q("update runs set status = 'running', question = null where id = %s", (run_id,))
+    db.q("update runs set status = 'running', question = null, state = %s where id = %s", (Jsonb(state), run_id))
 
     tools, linked = tools_for(emp)
     try:

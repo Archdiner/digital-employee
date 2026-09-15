@@ -183,9 +183,18 @@ def facts(request: Request, eid: int, q: str = ""):
 
 @app.post("/employees/{eid}/runs", dependencies=[Depends(auth)])
 def run_create(eid: int, task: str = Form(...)):
-    row = db.q("insert into runs (employee_id, task) values (%s, %s) returning id", (eid, task.strip()), one=True)
+    row = db.q("insert into runs (employee_id, task, title) values (%s, %s, %s) returning id", (eid, task.strip(), task.strip()[:80]), one=True)
     in_thread(agent.run, row["id"])
     return RedirectResponse(f"/runs/{row['id']}", status_code=303)
+
+
+@app.post("/runs/{rid}/say", dependencies=[Depends(auth)])
+def run_say(rid: int, text: str = Form(...)):
+    r = db.q("select status from runs where id = %s", (rid,), one=True)
+    if r["status"] == "running":
+        raise HTTPException(409, "still working; wait for it to finish")
+    in_thread(agent.answer, rid, text.strip())
+    return RedirectResponse(f"/runs/{rid}", status_code=303)
 
 
 @app.get("/runs/{rid}", response_class=HTMLResponse, dependencies=[Depends(auth)])
@@ -193,9 +202,9 @@ def run_view(request: Request, rid: int, explained: str = ""):
     r = db.q("select r.*, e.name as emp_name, e.firm from runs r join employees e on e.id = r.employee_id where r.id = %s", (rid,), one=True)
     if not r:
         raise HTTPException(404)
-    out = db.q("select id, filename from documents where id = %s", (r["output_document_id"],), one=True) if r["output_document_id"] else None
+    files = db.q("select id, filename, created_at from documents where run_id = %s order by id", (rid,))
     log = db.q("select at, action, detail from worklog where run_id = %s order by id", (rid,))
-    return page(request, "run.html", r=r, out=out, log=log, explained=explained)
+    return page(request, "run.html", r=r, files=files, chat=agent.transcript(rid), log=log, explained=explained)
 
 
 @app.post("/runs/{rid}/answer", dependencies=[Depends(auth)])

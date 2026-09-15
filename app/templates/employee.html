@@ -2,15 +2,17 @@
 {% block crumb %}<span class="crumb">/ {{emp.name}} · {{emp.firm}}</span>{% endblock %}{% block body %}
 <h1>{{emp.name}} <span class="muted" style="font-weight:400">· {{emp.role}}</span></h1>
 
-<div class="card"><h2 style="margin-top:0">Ask for work</h2>
+<div class="card"><h2 style="margin-top:0">Message {{emp.name}}</h2>
 <form method="post" action="/employees/{{emp.id}}/runs">
-<textarea name="task" required placeholder="Write the Q2 2026 quarterly portfolio review for Fund III."></textarea>
-<div style="margin-top:8px"><button type="submit">Start</button> <span class="small muted">It reads its skills, the firm notes and the documents, then writes a .docx. If it needs something it asks here.</span></div>
+<textarea name="task" required placeholder="Write the Q2 2026 quarterly portfolio review for Fund III.
+Put the summary table into a new Google Sheet and share it with me.
+Make a 5-slide deck of the Atlas situation."></textarea>
+<div style="margin-top:8px"><button type="submit">Send</button> <span class="small muted">Starts a conversation. It reads its skills, firm notes and documents, asks if it must, and comes back with files.</span></div>
 </form></div>
 
-<h2>Runs</h2>
+<h2>Conversations</h2>
 <div class="card">{% if not runs %}<span class="muted">None yet.</span>{% endif %}
-<table>{% for r in runs %}<tr><td><a href="/runs/{{r.id}}">#{{r.id}}</a></td><td>{{r.task[:120]}}</td><td><span class="pill {{r.status}}">{{r.status}}</span></td>
+<table>{% for r in runs %}<tr><td><a href="/runs/{{r.id}}">{{r.task[:100]}}</a></td><td><span class="pill {{r.status}}">{{r.status}}</span></td>
 <td class="small muted">{{r.created_at.strftime('%d %b %H:%M')}}</td><td>{% if r.output_document_id %}<a href="/documents/{{r.output_document_id}}">download</a>{% endif %}</td></tr>{% endfor %}</table></div>
 
 <h2 id="connections">Linked accounts</h2>

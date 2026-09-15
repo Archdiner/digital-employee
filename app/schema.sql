@@ -100,3 +100,9 @@ create table if not exists connections (
   created_at    timestamptz not null default now(),
   unique (employee_id, provider)
 );
+
+-- Every output a run produces (a run can make several files). Set on documents of kind 'output'.
+alter table documents add column if not exists run_id int references runs(id) on delete set null;
+create index if not exists documents_run on documents(run_id);
+-- A run is a conversation: the first message is the task, later messages continue it.
+alter table runs add column if not exists title text;

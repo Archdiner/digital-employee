@@ -43,7 +43,7 @@ Non-negotiable:
 - Numbers in anything you write come only from the fact store, referenced as {{{{fact:ID}}}}. You never type a figure yourself. Derived figures come from the compute tool.
 - If you do not know something that changes a number or a table, use ask_user. Otherwise proceed and record the gap.
 - Start by reading list_skills and the skills that apply, then the firm notes, then the documents you need. Past reviews set the layout, length and tone.
-- Finish by calling write_review. Then reply with a short plain-language note in three parts: what you are sure of, what you guessed at, what you could not find. That note is read by an operator, not the client.
+- This is a conversation. When asked for a document, produce it (write_review for the quarterly review, create_document for anything else), then reply briefly: what you are sure of, what you guessed at, what you could not find. When asked a question or given a correction, answer or fix and reply in a few sentences. Do not produce a file nobody asked for.
 
 You are one employee doing one job well. Do not pad. Do not invent."""
 
@@ -188,9 +188,9 @@ def tool_write_review(run, emp, args):
     if not filename.lower().endswith(".docx"):
         filename += ".docx"
     row = db.q(
-        """insert into documents (employee_id, filename, kind, content_type, bytes)
-           values (%s, %s, 'output', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', %s) returning id""",
-        (emp["id"], filename, data), one=True,
+        """insert into documents (employee_id, filename, kind, content_type, bytes, run_id)
+           values (%s, %s, 'output', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', %s, %s) returning id""",
+        (emp["id"], filename, data, run["id"]), one=True,
     )
     db.q("update runs set output_document_id = %s where id = %s", (row["id"], run["id"]))
     db.log(run["id"], "write_review", document_id=row["id"], filename=filename, cited_fact_ids=cited, sections=[s.get("heading") for s in args["sections"]])
@@ -280,8 +280,8 @@ def tool_create_document(run, emp, args):
         ref = f"{ext} in OneDrive, id {fid}, drive {did}"
     else:
         ref = None
-    row = db.q("insert into documents (employee_id, filename, kind, content_type, bytes) values (%s, %s, 'output', %s, %s) returning id",
-               (emp["id"], filename, MIMES[ext], data), one=True)
+    row = db.q("insert into documents (employee_id, filename, kind, content_type, bytes, run_id) values (%s, %s, 'output', %s, %s, %s) returning id",
+               (emp["id"], filename, MIMES[ext], data, run["id"]), one=True)
     db.q("update runs set output_document_id = %s where id = %s", (row["id"], run["id"]))
     db.log(run["id"], "create_document", format=fmt, destination=dest, document_id=row["id"], filename=filename, link=link, cited_fact_ids=cited)
     return f"Created document #{row['id']} {filename}" + (f", {ref}, link {link}" if ref else "") + f". {len(cited)} facts cited. Now reply with your note (sure / guessed / could not find)."
@@ -372,10 +372,8 @@ def run(run_id: int, max_turns: int = 60):
             calls = [i for i in items if i.get("type") == "function_call"]
             if not calls:
                 note = resp.output_text.strip()
-                done = bool(db.q("select output_document_id from runs where id = %s", (run_id,), one=True)["output_document_id"])
-                db.q("update runs set status = %s, notes = %s, state = %s, finished_at = now() where id = %s",
-                     ("done" if done else "failed", note, Jsonb(state), run_id))
-                db.log(run_id, "finish", done=done)
+                db.q("update runs set status = 'done', notes = %s, state = %s, finished_at = now() where id = %s", (note, Jsonb(state), run_id))
+                db.log(run_id, "finish")
                 return
             asked = None
             for call in calls:
@@ -397,13 +395,33 @@ def run(run_id: int, max_turns: int = 60):
 
 
 def answer(run_id: int, text: str):
-    """The user answered the question. Append and continue."""
-    r = db.q("select state from runs where id = %s", (run_id,), one=True)
+    """A follow-up message in the conversation: an answer to its question, a correction, or the next request."""
+    r = db.q("select state, status from runs where id = %s", (run_id,), one=True)
     state = list(r["state"] or [])
     state.append({"role": "user", "content": text})
-    db.q("update runs set state = %s, answer = %s where id = %s", (Jsonb(state), text, run_id))
-    db.log(run_id, "answer", text=text)
+    db.q("update runs set state = %s, answer = %s, notes = null, finished_at = null where id = %s", (Jsonb(state), text, run_id))
+    db.log(run_id, "message" if r["status"] != "waiting" else "answer", text=text)
     run(run_id)
+
+
+def transcript(run_id: int):
+    """The conversation as the user sees it: their messages, the employee's replies, files produced. Tool calls stay in the log."""
+    r = db.q("select state from runs where id = %s", (run_id,), one=True)
+    files = {d["id"]: d for d in db.q("select id, filename, created_at from documents where run_id = %s order by id", (run_id,))}
+    out = []
+    for item in r["state"] or []:
+        if item.get("role") == "user" and isinstance(item.get("content"), str):
+            out.append({"who": "you", "text": item["content"]})
+        elif item.get("type") == "message" and item.get("role") == "assistant":
+            text = "".join(c.get("text", "") for c in item.get("content", []) if c.get("type") == "output_text").strip()
+            if text:
+                out.append({"who": "employee", "text": text})
+        elif item.get("type") == "function_call_output" and str(item.get("output", "")).startswith(("Document written: #", "Created document #")):
+            m = re.search(r"#(\d+)", item["output"])
+            d = files.get(int(m.group(1))) if m else None
+            if d:
+                out.append({"who": "file", "doc": d, "text": item["output"].split(". ", 1)[0]})
+    return out
 
 
 def explain(run_id: int, question: str) -> str:

@@ -86,3 +86,17 @@ create table if not exists edits (
   skills_used text[],
   created_at  timestamptz not null default now()
 );
+
+-- Linked accounts (Google Workspace, Microsoft 365). One per provider per employee. Tokens are refreshed in place.
+create table if not exists connections (
+  id            serial primary key,
+  employee_id   int not null references employees(id) on delete cascade,
+  provider      text not null,            -- google | microsoft
+  account       text,                     -- email of the linked account
+  access_token  text not null,
+  refresh_token text,
+  expires_at    timestamptz,
+  scopes        text,
+  created_at    timestamptz not null default now(),
+  unique (employee_id, provider)
+);

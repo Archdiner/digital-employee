@@ -87,6 +87,11 @@ infra() {
       --value "postgresql://${PG_USER}:${PG_PASS}@${PG}.postgres.database.azure.com:5432/${PG_DB}?sslmode=require" -o none
   fi
 
+  say "linked-account OAuth secrets (Key Vault). Google values are placeholders until you paste the real client id/secret."
+  for name in google-client-id google-client-secret; do
+    az keyvault secret show --vault-name "$KV" -n $name -o none 2>/dev/null || az keyvault secret set --vault-name "$KV" -n $name --value unset -o none
+  done
+
   say "admin password for the operator UI (Key Vault secret admin-password)"
   az keyvault secret show --vault-name "$KV" -n admin-password -o none 2>/dev/null \
     || az keyvault secret set --vault-name "$KV" -n admin-password --value "$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24)" -o none
@@ -114,12 +119,23 @@ app() {
       --ingress external --target-port 8080 --cpu 0.5 --memory 1Gi --min-replicas 1 --max-replicas 1 \
       --secrets "database-url=keyvaultref:${KV_URI}secrets/database-url,identityref:${ID_RES}" \
                 "admin-password=keyvaultref:${KV_URI}secrets/admin-password,identityref:${ID_RES}" \
+                "graph-client-secret=keyvaultref:${KV_URI}secrets/graph-client-secret,identityref:${ID_RES}" \
+                "google-client-id=keyvaultref:${KV_URI}secrets/google-client-id,identityref:${ID_RES}" \
+                "google-client-secret=keyvaultref:${KV_URI}secrets/google-client-secret,identityref:${ID_RES}" \
       --env-vars DATABASE_URL=secretref:database-url ADMIN_PASSWORD=secretref:admin-password AZURE_CLIENT_ID="$ID_CLIENT" \
+                 MS_CLIENT_SECRET=secretref:graph-client-secret GOOGLE_CLIENT_ID=secretref:google-client-id GOOGLE_CLIENT_SECRET=secretref:google-client-secret \
+                 BASE_URL="https://${APP}.$(az containerapp env show -n "$ENV" -g "$RG" --query properties.defaultDomain -o tsv)" \
                  AZURE_OPENAI_RESOURCE="$FOUNDRY" MODEL="$MODEL" PORT=8080 -o none
   else
     say "update container app $APP"
+    az containerapp secret set -n "$APP" -g "$RG" --secrets \
+      "graph-client-secret=keyvaultref:${KV_URI}secrets/graph-client-secret,identityref:${ID_RES}" \
+      "google-client-id=keyvaultref:${KV_URI}secrets/google-client-id,identityref:${ID_RES}" \
+      "google-client-secret=keyvaultref:${KV_URI}secrets/google-client-secret,identityref:${ID_RES}" -o none
     az containerapp update -n "$APP" -g "$RG" --image "$IMAGE" \
-      --set-env-vars AZURE_OPENAI_RESOURCE="$FOUNDRY" MODEL="$MODEL" -o none
+      --set-env-vars AZURE_OPENAI_RESOURCE="$FOUNDRY" MODEL="$MODEL" MS_CLIENT_SECRET=secretref:graph-client-secret \
+        GOOGLE_CLIENT_ID=secretref:google-client-id GOOGLE_CLIENT_SECRET=secretref:google-client-secret \
+        BASE_URL="https://$(az containerapp show -n "$APP" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)" -o none
   fi
   echo "https://$(az containerapp show -n "$APP" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)"
 }

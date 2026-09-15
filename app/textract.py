@@ -3,6 +3,7 @@ import io
 
 from docx import Document
 from openpyxl import load_workbook
+from pptx import Presentation
 from pypdf import PdfReader
 
 
@@ -14,6 +15,8 @@ def extract_text(filename: str, data: bytes) -> str:
         return _xlsx(data)
     if name.endswith(".pdf"):
         return _pdf(data)
+    if name.endswith(".pptx"):
+        return _pptx(data)
     return data.decode("utf-8", errors="replace")
 
 
@@ -41,3 +44,17 @@ def _xlsx(data):
 def _pdf(data):
     reader = PdfReader(io.BytesIO(data))
     return "\n".join(f"\n[page {i}]\n{(p.extract_text() or '').strip()}" for i, p in enumerate(reader.pages, 1))
+
+
+def _pptx(data):
+    prs = Presentation(io.BytesIO(data))
+    out = []
+    for i, slide in enumerate(prs.slides, 1):
+        out.append(f"\n[slide {i}]")
+        for shape in slide.shapes:
+            if shape.has_text_frame and shape.text_frame.text.strip():
+                out.append(shape.text_frame.text)
+            if getattr(shape, "has_table", False) and shape.has_table:
+                for row in shape.table.rows:
+                    out.append("\t".join(c.text for c in row.cells))
+    return "\n".join(out)

@@ -9,7 +9,7 @@ from datetime import date
 
 from psycopg.types.json import Jsonb
 
-from . import db, llm, render
+from . import connections, db, extract, gws, llm, m365, office, render
 
 PAGE = 15_000
 
@@ -25,9 +25,19 @@ TOOLS = [
     {"type": "function", "name": "write_review", "description": "Write the finished document. Every number must be a fact reference: {{fact:ID}} prints the stored value with its unit; {{fact:ID:v}} prints the value alone (use it in table cells when the column header already carries the unit). The renderer rejects any other digits except years, quarter labels and list numbering. If rejected, fix and call again.", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "filename": {"type": "string", "description": "e.g. 'Fund III Q2 2026 Portfolio Review.docx'"}, "sections": {"type": "array", "items": {"type": "object", "properties": {"heading": {"type": "string"}, "paragraphs": {"type": "array", "items": {"type": "string"}}, "table": {"type": ["object", "null"], "properties": {"columns": {"type": "array", "items": {"type": "string"}}, "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}}}, "required": ["heading"]}}}, "required": ["title", "filename", "sections"]}},
 ]
 
+WORKSPACE_TOOLS = [
+    {"type": "function", "name": "workspace_search", "description": "Search files in a linked account: Google Drive (incl. shared drives and files shared with you) or Microsoft 365 (OneDrive and files shared with you).", "parameters": {"type": "object", "properties": {"provider": {"type": "string", "enum": ["google", "microsoft"]}, "query": {"type": "string"}}, "required": ["provider", "query"]}},
+    {"type": "function", "name": "workspace_read", "description": "Read a file from a linked account as text (Docs, Sheets with row numbers, Slides, docx, xlsx, pptx, pdf). For orientation only: numbers you want to cite must be imported first.", "parameters": {"type": "object", "properties": {"provider": {"type": "string", "enum": ["google", "microsoft"]}, "file_id": {"type": "string"}, "drive_id": {"type": ["string", "null"], "description": "microsoft only"}, "page": {"type": "integer"}}, "required": ["provider", "file_id"]}},
+    {"type": "function", "name": "workspace_import", "description": "Copy a file from a linked account into this employee's documents and extract its facts so they become citable. kind: source or past_review.", "parameters": {"type": "object", "properties": {"provider": {"type": "string", "enum": ["google", "microsoft"]}, "file_id": {"type": "string"}, "drive_id": {"type": ["string", "null"]}, "kind": {"type": "string", "enum": ["source", "past_review"]}}, "required": ["provider", "file_id", "kind"]}},
+    {"type": "function", "name": "create_document", "description": "Create a new document. format: docx | pptx | xlsx | gdoc | gsheet | gslides. destination: 'here' (downloadable from this system), 'google' (Drive), 'microsoft' (OneDrive). docx/gdoc spec = {title, sections:[{heading, paragraphs, table}]}; pptx/gslides spec = {title, subtitle, slides:[{title, bullets, table}]}; xlsx/gsheet spec = {title, sheets:[{name, rows:[[cell]]}]}. Every number must be a {{fact:ID}} or {{fact:ID:v}} reference.", "parameters": {"type": "object", "properties": {"format": {"type": "string", "enum": ["docx", "pptx", "xlsx", "gdoc", "gsheet", "gslides"]}, "destination": {"type": "string", "enum": ["here", "google", "microsoft"]}, "filename": {"type": "string"}, "spec": {"type": "object"}}, "required": ["format", "destination", "filename", "spec"]}},
+    {"type": "function", "name": "update_spreadsheet", "description": "Write a block of cells into an EXISTING shared spreadsheet (Google Sheet or xlsx in OneDrive/SharePoint) without touching other cells. range is A1 notation like 'B4:E4'. Values must be text or {{fact:ID:v}} references; they are checked like a document.", "parameters": {"type": "object", "properties": {"provider": {"type": "string", "enum": ["google", "microsoft"]}, "file_id": {"type": "string"}, "drive_id": {"type": ["string", "null"]}, "sheet": {"type": "string"}, "range": {"type": "string"}, "values": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}, "required": ["provider", "file_id", "sheet", "range", "values"]}},
+    {"type": "function", "name": "append_to_document", "description": "Append paragraphs to an EXISTING shared document (Google Doc or docx in OneDrive/SharePoint). Numbers as {{fact:ID}}.", "parameters": {"type": "object", "properties": {"provider": {"type": "string", "enum": ["google", "microsoft"]}, "file_id": {"type": "string"}, "drive_id": {"type": ["string", "null"]}, "paragraphs": {"type": "array", "items": {"type": "string"}}}, "required": ["provider", "file_id", "paragraphs"]}},
+    {"type": "function", "name": "share_file", "description": "Share a file you created with a person (Google: by email; Microsoft: returns an organisation edit link).", "parameters": {"type": "object", "properties": {"provider": {"type": "string", "enum": ["google", "microsoft"]}, "file_id": {"type": "string"}, "drive_id": {"type": ["string", "null"]}, "email": {"type": ["string", "null"]}}, "required": ["provider", "file_id"]}},
+]
+
 INSTRUCTIONS = """You are {name}, a {role} at {firm}. Today is {today}.
 
-You work from documents and a fact store. You have skills (plain text, read them), firm notes, and a work log kept for you.
+You work from documents and a fact store. You have skills (plain text, read them), firm notes, and a work log kept for you.{workspace_note}
 
 Non-negotiable:
 - Numbers in anything you write come only from the fact store, referenced as {{{{fact:ID}}}}. You never type a figure yourself. Derived figures come from the compute tool.
@@ -38,8 +48,18 @@ Non-negotiable:
 You are one employee doing one job well. Do not pad. Do not invent."""
 
 
-def instructions_for(emp):
-    return INSTRUCTIONS.format(name=emp["name"], role=emp["role"], firm=emp["firm"], today=date.today().isoformat())
+def instructions_for(emp, linked=()):
+    note = ""
+    if linked:
+        note = ("\nLinked accounts: " + ", ".join(linked) + ". You can search, read and import their files, create new documents there "
+                "(docx, pptx, xlsx, or native Google Docs/Sheets/Slides), and edit existing shared spreadsheets and documents in place. "
+                "Import a file before citing numbers from it. When the task names a file, find it there first.")
+    return INSTRUCTIONS.format(name=emp["name"], role=emp["role"], firm=emp["firm"], today=date.today().isoformat(), workspace_note=note)
+
+
+def tools_for(emp):
+    linked = list(connections.list_for(emp["id"]).keys())
+    return (TOOLS + WORKSPACE_TOOLS if linked else TOOLS), linked
 
 
 # ---------- tools ----------
@@ -177,7 +197,159 @@ def tool_write_review(run, emp, args):
     return f"Document written: #{row['id']} {filename}. {len(cited)} facts cited. Now reply with your note (sure / guessed / could not find)."
 
 
-TOOL_FNS = {t["name"]: globals()["tool_" + t["name"]] for t in TOOLS}
+# ---------- linked accounts ----------
+
+def _tok(emp, provider):
+    return connections.token(emp["id"], provider)
+
+
+def tool_workspace_search(run, emp, args):
+    p = args["provider"]
+    hits = gws.search(_tok(emp, p), args["query"]) if p == "google" else m365.search(_tok(emp, p), args["query"])
+    db.log(run["id"], "workspace_search", provider=p, query=args["query"], hits=len(hits))
+    return "\n".join(f"{h['id']} | {h.get('drive_id') or ''} | {h['type']} | {h['name']} | {h['modified']} | {h['owner']}" for h in hits) or "no files match"
+
+
+def tool_workspace_read(run, emp, args):
+    p = args["provider"]
+    name, text = gws.read(_tok(emp, p), args["file_id"]) if p == "google" else m365.read(_tok(emp, p), args["drive_id"], args["file_id"])
+    page = max(1, int(args.get("page") or 1))
+    pages = max(1, (len(text) - 1) // PAGE + 1)
+    db.log(run["id"], "workspace_read", provider=p, file_id=args["file_id"], name=name, page=page, pages=pages)
+    return f"[{name} | {p} | page {page} of {pages}]\n{text[(page - 1) * PAGE : page * PAGE]}"
+
+
+def tool_workspace_import(run, emp, args):
+    p = args["provider"]
+    tok = _tok(emp, p)
+    if p == "google":
+        name, mime, data = gws.download(tok, args["file_id"])
+        _, text = gws.read(tok, args["file_id"])
+    else:
+        name, mime, data = m365.download(tok, args["drive_id"], args["file_id"])
+        text = textract_text(name, data)
+    row = db.q("insert into documents (employee_id, filename, kind, content_type, bytes, text) values (%s, %s, %s, %s, %s, %s) returning id",
+               (emp["id"], name, args["kind"], mime, data, text), one=True)
+    n = extract.extract_facts(emp["id"], row["id"], emp["model"])
+    db.log(run["id"], "workspace_import", provider=p, file_id=args["file_id"], document_id=row["id"], name=name, facts=n)
+    return f"Imported as document #{row['id']} ({name}), {n} facts extracted. Use search_facts to find them."
+
+
+def textract_text(name, data):
+    from . import textract
+    return textract.extract_text(name, data)
+
+
+BUILDERS = {"docx": office.build_docx, "gdoc": office.build_docx, "pptx": office.build_pptx, "gslides": office.build_pptx,
+            "xlsx": office.build_xlsx, "gsheet": office.build_xlsx}
+MIMES = {"docx": gws.OFFICE["docx"], "pptx": gws.OFFICE["pptx"], "xlsx": gws.OFFICE["xlsx"]}
+
+
+def tool_create_document(run, emp, args):
+    fmt, dest, spec = args["format"], args["destination"], args["spec"]
+    get = lambda fid: get_fact(emp["id"], fid)  # noqa: E731
+    try:
+        data, cited = BUILDERS[fmt](spec, get)
+    except render.ReviewError as e:
+        db.log(run["id"], "create_document_rejected", format=fmt, problems=str(e))
+        return f"Document rejected. Fix these and call create_document again:\n{e}"
+    filename = args["filename"]
+    ext = {"gdoc": "docx", "gsheet": "xlsx", "gslides": "pptx"}.get(fmt, fmt)
+    if not filename.lower().endswith("." + ext):
+        filename += "." + ext
+    link = None
+    if dest == "google":
+        tok = _tok(emp, "google")
+        if fmt in ("gdoc", "gsheet", "gslides"):
+            # native: substitute text first, then build through the Google APIs
+            if fmt == "gdoc":
+                sub = _substituted_sections(spec, get)
+                fid, link = gws.create_doc(tok, office.substitute_text(spec.get("title", filename), get)[0], sub)
+            elif fmt == "gsheet":
+                sheets = [{"name": sh.get("name"), "rows": office.substitute_grid(sh.get("rows") or [], get)[0]} for sh in spec.get("sheets", [])]
+                fid, link = gws.create_sheet(tok, office.substitute_text(spec.get("title", filename), get)[0], sheets)
+            else:
+                slides = _substituted_slides(spec, get)
+                fid, link = gws.create_slides(tok, office.substitute_text(spec.get("title", filename), get)[0], slides)
+        else:
+            fid, link = gws.upload(tok, filename, data, MIMES[fmt])
+        ref = f"{fmt} in Google Drive, id {fid}"
+    elif dest == "microsoft":
+        tok = _tok(emp, "microsoft")
+        fid, did, link = m365.upload(tok, filename, data)
+        ref = f"{ext} in OneDrive, id {fid}, drive {did}"
+    else:
+        ref = None
+    row = db.q("insert into documents (employee_id, filename, kind, content_type, bytes) values (%s, %s, 'output', %s, %s) returning id",
+               (emp["id"], filename, MIMES[ext], data), one=True)
+    db.q("update runs set output_document_id = %s where id = %s", (row["id"], run["id"]))
+    db.log(run["id"], "create_document", format=fmt, destination=dest, document_id=row["id"], filename=filename, link=link, cited_fact_ids=cited)
+    return f"Created document #{row['id']} {filename}" + (f", {ref}, link {link}" if ref else "") + f". {len(cited)} facts cited. Now reply with your note (sure / guessed / could not find)."
+
+
+def _substituted_sections(spec, get):
+    out = []
+    for sec in spec.get("sections", []):
+        table = sec.get("table")
+        out.append({
+            "heading": office.substitute_text(sec.get("heading", ""), get)[0],
+            "paragraphs": [office.substitute_text(p, get)[0] for p in sec.get("paragraphs") or []],
+            "table": {"columns": [office.substitute_text(c, get)[0] for c in table["columns"]],
+                      "rows": office.substitute_grid(table.get("rows") or [], get)[0]} if table and table.get("columns") else None,
+        })
+    return out
+
+
+def _substituted_slides(spec, get):
+    out = []
+    for sl in spec.get("slides", []):
+        table = sl.get("table")
+        out.append({"title": office.substitute_text(sl.get("title", ""), get)[0],
+                    "bullets": [office.substitute_text(b, get)[0] for b in sl.get("bullets") or []],
+                    "table": {"columns": [office.substitute_text(c, get)[0] for c in table["columns"]],
+                              "rows": office.substitute_grid(table.get("rows") or [], get)[0]} if table and table.get("columns") else None})
+    return out
+
+
+def tool_update_spreadsheet(run, emp, args):
+    p = args["provider"]
+    try:
+        values, cited = office.substitute_grid(args["values"], lambda fid: get_fact(emp["id"], fid))
+    except render.ReviewError as e:
+        return f"Rejected. Fix these and call again:\n{e}"
+    if p == "google":
+        rng, n = gws.update_sheet_values(_tok(emp, p), args["file_id"], f"'{args['sheet']}'!{args['range']}", values)
+    else:
+        rng, n = m365.excel_update(_tok(emp, p), args["drive_id"], args["file_id"], args["sheet"], args["range"], values)
+    db.log(run["id"], "update_spreadsheet", provider=p, file_id=args["file_id"], sheet=args["sheet"], range=rng, cells=n, cited_fact_ids=cited)
+    return f"Wrote {n} cells into {args['sheet']}!{rng}."
+
+
+def tool_append_to_document(run, emp, args):
+    p = args["provider"]
+    try:
+        paras = [office.substitute_text(t, lambda fid: get_fact(emp["id"], fid))[0] for t in args["paragraphs"]]
+    except render.ReviewError as e:
+        return f"Rejected. Fix these and call again:\n{e}"
+    if p == "google":
+        link = gws.append_doc_text(_tok(emp, p), args["file_id"], "\n".join(paras))
+    else:
+        link = m365.docx_append(_tok(emp, p), args["drive_id"], args["file_id"], paras)
+    db.log(run["id"], "append_to_document", provider=p, file_id=args["file_id"], paragraphs=len(paras), link=link)
+    return f"Appended {len(paras)} paragraphs. {link}"
+
+
+def tool_share_file(run, emp, args):
+    p = args["provider"]
+    if p == "google":
+        link = gws.share(_tok(emp, p), args["file_id"], args["email"]) if args.get("email") else gws.link(args["file_id"])
+    else:
+        link = m365.share_link(_tok(emp, p), args["drive_id"], args["file_id"])
+    db.log(run["id"], "share_file", provider=p, file_id=args["file_id"], email=args.get("email"), link=link)
+    return link
+
+
+TOOL_FNS = {t["name"]: globals()["tool_" + t["name"]] for t in TOOLS + WORKSPACE_TOOLS}
 
 
 # ---------- the loop ----------
@@ -191,9 +363,10 @@ def run(run_id: int, max_turns: int = 60):
         db.log(run_id, "start", task=r["task"], model=emp["model"])
     db.q("update runs set status = 'running', question = null where id = %s", (run_id,))
 
+    tools, linked = tools_for(emp)
     try:
         for _ in range(max_turns):
-            resp = llm.respond(model=emp["model"], instructions=instructions_for(emp), input_items=state, tools=TOOLS)
+            resp = llm.respond(model=emp["model"], instructions=instructions_for(emp, linked), input_items=state, tools=tools)
             items = llm.output_items(resp)
             state.extend(items)
             calls = [i for i in items if i.get("type") == "function_call"]
@@ -240,6 +413,7 @@ def explain(run_id: int, question: str) -> str:
     cited = set()
     for row in log:
         cited.update(row["detail"].get("cited_fact_ids") or [])
+    # linked-account writes also count
     facts = [fact_line(get_fact(r["employee_id"], fid)) for fid in sorted(cited)] if cited else []
     text = (
         f"Task: {r['task']}\n\nWork log:\n" + "\n".join(f"{row['at']:%H:%M:%S} {row['action']} {json.dumps(row['detail'], default=str)[:600]}" for row in log)

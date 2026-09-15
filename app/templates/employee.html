@@ -13,6 +13,18 @@
 <table>{% for r in runs %}<tr><td><a href="/runs/{{r.id}}">#{{r.id}}</a></td><td>{{r.task[:120]}}</td><td><span class="pill {{r.status}}">{{r.status}}</span></td>
 <td class="small muted">{{r.created_at.strftime('%d %b %H:%M')}}</td><td>{% if r.output_document_id %}<a href="/documents/{{r.output_document_id}}">download</a>{% endif %}</td></tr>{% endfor %}</table></div>
 
+<h2 id="connections">Linked accounts</h2>
+<div class="card"><div class="row">
+{% for p in providers %}<div>
+  <b>{{p.label}}</b><br>
+  {% if p.linked %}<span class="small">connected as {{p.linked.account}}</span>
+    <div style="margin-top:6px"><a class="btn quiet" href="/employees/{{emp.id}}/workspace?provider={{p.key}}">Browse files</a>
+    <form method="post" action="/employees/{{emp.id}}/connections/{{p.key}}/delete" style="display:inline"><button class="danger">disconnect</button></form></div>
+  {% elif p.configured %}<a class="btn" style="margin-top:6px" href="/connect/{{p.key}}?employee_id={{emp.id}}">Connect {{p.label}}</a>
+  {% else %}<span class="small muted">not configured: set {{ 'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET' if p.key == 'google' else 'MS_CLIENT_SECRET' }}</span>{% endif %}
+</div>{% endfor %}
+</div><p class="small muted" style="margin-bottom:0">Once linked, the employee can search, read and import files from there, create new documents there, and edit shared spreadsheets and documents in place.</p></div>
+
 <h2 id="documents">Documents <span class="muted small">· <a href="/employees/{{emp.id}}/facts">{{nfacts}} facts in the store</a></span></h2>
 <div class="card">
 <form method="post" action="/employees/{{emp.id}}/documents" enctype="multipart/form-data" class="row" style="align-items:flex-end">

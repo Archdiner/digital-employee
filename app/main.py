@@ -11,7 +11,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import agent, db, extract, llm, textract
+from . import agent, connections, db, extract, gws, llm, m365, textract
 
 HERE = Path(__file__).parent
 app = FastAPI(title="Digital Employee")
@@ -99,7 +99,9 @@ def employee(request: Request, eid: int):
            from documents d where d.employee_id = %s order by d.id desc""", (eid,))
     runs = db.q("select id, task, status, created_at, finished_at, output_document_id from runs where employee_id = %s order by id desc", (eid,))
     nfacts = db.q("select count(*) as n from facts where employee_id = %s", (eid,), one=True)["n"]
-    return page(request, "employee.html", emp=emp, skills=skills, docs=docs, runs=runs, nfacts=nfacts, models=MODELS)
+    linked = connections.list_for(eid)
+    providers = [{"key": k, "label": v["label"], "configured": connections.configured(k), "linked": linked.get(k)} for k, v in connections.PROVIDERS.items()]
+    return page(request, "employee.html", emp=emp, skills=skills, docs=docs, runs=runs, nfacts=nfacts, models=MODELS, providers=providers)
 
 
 @app.post("/employees/{eid}/settings", dependencies=[Depends(auth)])
@@ -213,3 +215,56 @@ def run_retry(rid: int):
 def run_explain(request: Request, rid: int, question: str = Form(...)):
     text = agent.explain(rid, question.strip())
     return run_view(request, rid, explained=text)
+
+
+# ---------- linked accounts ----------
+
+@app.get("/connect/{provider}", dependencies=[Depends(auth)])
+def connect_start(provider: str, employee_id: int):
+    if provider not in connections.PROVIDERS or not connections.configured(provider):
+        raise HTTPException(400, f"{provider} is not configured (client id/secret missing)")
+    return RedirectResponse(connections.auth_url(employee_id, provider), status_code=303)
+
+
+@app.get("/connect/{provider}/callback")
+def connect_callback(provider: str, code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    if error:
+        return HTMLResponse(f"<h3>{provider} sign-in failed</h3><pre>{error}: {error_description}</pre>", status_code=400)
+    eid, prov = connections.parse_state(state)
+    who = connections.save(eid, prov, connections.exchange(prov, code))
+    return RedirectResponse(f"/employees/{eid}#connections", status_code=303)
+
+
+@app.post("/employees/{eid}/connections/{provider}/delete", dependencies=[Depends(auth)])
+def connect_delete(eid: int, provider: str):
+    connections.delete(eid, provider)
+    return RedirectResponse(f"/employees/{eid}#connections", status_code=303)
+
+
+@app.get("/employees/{eid}/workspace", response_class=HTMLResponse, dependencies=[Depends(auth)])
+def workspace(request: Request, eid: int, provider: str = "google", q: str = ""):
+    emp = db.q("select * from employees where id = %s", (eid,), one=True)
+    hits, err = [], None
+    if q:
+        try:
+            tok = connections.token(eid, provider)
+            hits = gws.search(tok, q) if provider == "google" else m365.search(tok, q)
+        except Exception as e:  # noqa: BLE001
+            err = str(e)[:500]
+    return page(request, "workspace.html", emp=emp, provider=provider, q=q, hits=hits, err=err, linked=connections.list_for(eid))
+
+
+@app.post("/employees/{eid}/workspace/import", dependencies=[Depends(auth)])
+def workspace_import(eid: int, provider: str = Form(...), file_id: str = Form(...), drive_id: str = Form(""), kind: str = Form("source")):
+    emp = db.q("select model from employees where id = %s", (eid,), one=True)
+    tok = connections.token(eid, provider)
+    if provider == "google":
+        name, mime, data = gws.download(tok, file_id)
+        _, text = gws.read(tok, file_id)
+    else:
+        name, mime, data = m365.download(tok, drive_id, file_id)
+        text = textract.extract_text(name, data)
+    row = db.q("insert into documents (employee_id, filename, kind, content_type, bytes, text) values (%s, %s, %s, %s, %s, %s) returning id",
+               (eid, name, kind, mime, data, text), one=True)
+    in_thread(extract.extract_facts, eid, row["id"], emp["model"])
+    return RedirectResponse(f"/employees/{eid}#documents", status_code=303)

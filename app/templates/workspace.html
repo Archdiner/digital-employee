@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block crumb %}<span class="crumb">/ <a href="/employees/{{emp.id}}">{{emp.name}}</a> / files</span>{% endblock %}{% block body %}
+<h1>Files in linked accounts</h1>
+<form method="get" class="card row" style="align-items:flex-end">
+  <div style="flex:0 1 220px"><label>Account</label><select name="provider">{% for k in ['google','microsoft'] %}<option value="{{k}}" {% if k == provider %}selected{% endif %} {% if k not in linked %}disabled{% endif %}>{{ 'Google Workspace' if k == 'google' else 'Microsoft 365' }}{% if k not in linked %} (not linked){% endif %}</option>{% endfor %}</select></div>
+  <div><label>Search</label><input type="search" name="q" value="{{q}}" placeholder="Q2 2026 management accounts"></div>
+  <div style="flex:0 0 auto"><button>Search</button></div>
+</form>
+{% if err %}<div class="card" style="border-color:var(--bad)"><pre class="note">{{err}}</pre></div>{% endif %}
+{% if hits %}<div class="card"><table><tr><th>name</th><th>type</th><th>modified</th><th>owner</th><th></th></tr>
+{% for h in hits %}<tr><td><a href="{{h.link}}" target="_blank">{{h.name}}</a></td><td>{{h.type}}</td><td>{{h.modified}}</td><td class="small muted">{{h.owner}}</td>
+<td style="white-space:nowrap"><form method="post" action="/employees/{{emp.id}}/workspace/import" style="display:inline">
+<input type="hidden" name="provider" value="{{provider}}"><input type="hidden" name="file_id" value="{{h.id}}"><input type="hidden" name="drive_id" value="{{h.drive_id or ''}}">
+<select name="kind" style="width:auto;padding:4px"><option value="source">source</option><option value="past_review">past review</option></select>
+<button class="quiet" style="padding:4px 8px;font-size:12px">import</button></form></td></tr>{% endfor %}</table></div>
+{% elif q %}<div class="card muted">No files match.</div>{% endif %}
+{% endblock %}

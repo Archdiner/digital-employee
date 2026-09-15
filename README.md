@@ -40,9 +40,8 @@ Everything is plain `az` commands in one file. Names, region and model are varia
 
 ## Model
 
-Azure OpenAI `gpt-5.6-sol` through Microsoft Foundry, Entra auth, no keys. It is a Microsoft first-party
-service under Microsoft's DPA/BAA. Claude in Foundry is sold and operated by Anthropic as an independent data
-processor, so it is not used for client data. Model is a per-employee setting; any Azure OpenAI deployment works.
+Azure OpenAI `gpt-5.6-sol`, Entra auth, no keys. Azure OpenAI is a Microsoft first-party service under
+Microsoft's DPA/BAA. Model is a per-employee setting; any Azure OpenAI deployment works.
 
 ## Connecting a firm's documents
 

@@ -21,7 +21,7 @@ Zybit's Azure subscription (existing credits), resource group `zybit-emp-rg`, Ce
 - **One small Postgres** (fact store, work log, saved edits, documents).
 - **Key Vault** for the database URL and any per-firm connection secret.
 - **Managed identity** for everything else: registry pull, Key Vault read, model calls. No keys in code.
-- **Model** via Microsoft Foundry in the same subscription (Azure OpenAI GPT-5.6 Sol by default: a Microsoft first-party service under Microsoft's DPA/BAA. Claude in Foundry is sold and operated by Anthropic as an independent processor, so it is not used). Model is a setting.
+- **Model**: Azure OpenAI (GPT-5.6 Sol by default), a Microsoft first-party service under Microsoft's DPA/BAA. Model is a setting.
 
 ## Keeping firms apart
 

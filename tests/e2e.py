@@ -1,5 +1,10 @@
 """End to end against a running server: create employee, upload fixtures, wait for facts, ask for a review,
-wait for the document, ask where a number came from. Run: python tests/e2e.py http://localhost:8080"""
+wait for the document, ask where a number came from.
+  Local:    python tests/e2e.py http://localhost:8080
+  Deployed: ADMIN_PASSWORD=$(az keyvault secret show --vault-name zybit-emp-kv -n admin-password --query value -o tsv) \
+            python tests/e2e.py https://emp-app.jollymushroom-dec64f0f.centralus.azurecontainerapps.io"""
+import base64
+import os
 import re
 import sys
 import time
@@ -10,9 +15,11 @@ import uuid
 from pathlib import Path
 
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://localhost:8080"
+PASSWORD = os.environ.get("ADMIN_PASSWORD")  # set for the deployed app
 FIX = Path(__file__).parent / "fixtures"
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-opener.addheaders = [("User-Agent", "e2e")]
+AUTH = [("Authorization", "Basic " + base64.b64encode(f"admin:{PASSWORD}".encode()).decode())] if PASSWORD else []
+opener.addheaders = [("User-Agent", "e2e")] + AUTH
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -21,6 +28,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 noredir = urllib.request.build_opener(NoRedirect)
+noredir.addheaders = [("User-Agent", "e2e")] + AUTH
 
 
 def get(path):

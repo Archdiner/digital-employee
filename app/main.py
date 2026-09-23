@@ -11,7 +11,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import agent, connections, db, extract, gws, llm, m365, textract
+from . import agent, connections, db, extract, gws, llm, m365, setup, textract
 
 HERE = Path(__file__).parent
 app = FastAPI(title="Digital Employee")
@@ -59,22 +59,33 @@ def index(request: Request):
     return page(request, "index.html", employees=emps)
 
 
+def _general():
+    return db.q("select id, name, split_part(body, E'\\n', 1) as when_to_use from skills where employee_id is null order by name")
+
+
 @app.get("/employees/new", response_class=HTMLResponse, dependencies=[Depends(auth)])
 def employee_new(request: Request):
-    general = db.q("select id, name, split_part(body, E'\\n', 1) as when_to_use from skills where employee_id is null order by name")
-    return page(request, "employee_new.html", general=general, models=MODELS)
+    return page(request, "employee_new.html", general=_general(), models=MODELS, draft=None)
+
+
+@app.post("/employees/draft", response_class=HTMLResponse, dependencies=[Depends(auth)])
+def employee_draft(request: Request, job_description: str = Form(...), firm: str = Form(""), model: str = Form(llm.DEFAULT_MODEL)):
+    """Paste a job description, get a proposed setup to approve. Nothing is saved here."""
+    d = setup.draft(job_description, firm, model)
+    d["job_description"], d["firm"], d["model"] = job_description, firm, model
+    return page(request, "employee_new.html", general=_general(), models=MODELS, draft=d)
 
 
 @app.post("/employees", dependencies=[Depends(auth)])
 def employee_create(
-    name: str = Form(...), role: str = Form(...), firm: str = Form(...), firm_notes: str = Form(""),
+    name: str = Form(...), role: str = Form(...), firm: str = Form(...), firm_notes: str = Form(""), job_description: str = Form(""),
     model: str = Form(llm.DEFAULT_MODEL), skill_ids: list[int] = Form([]),
-    custom_skill_name: str = Form(""), custom_skill_body: str = Form(""),
+    new_skill_on: list[int] = Form([]), new_skill_name: list[str] = Form([]), new_skill_body: list[str] = Form([]),
 ):
     with db.conn() as c:
         emp = c.execute(
-            "insert into employees (name, role, firm, firm_notes, model) values (%s, %s, %s, %s, %s) returning id",
-            (name.strip(), role.strip(), firm.strip(), firm_notes.strip(), model),
+            "insert into employees (name, role, firm, firm_notes, model, job_description) values (%s, %s, %s, %s, %s, %s) returning id",
+            (name.strip(), role.strip(), firm.strip(), firm_notes.strip(), model, job_description.strip()),
         ).fetchone()
         if skill_ids:
             c.execute(
@@ -82,8 +93,10 @@ def employee_create(
                    select %s, name, body from skills where employee_id is null and id = any(%s)""",
                 (emp["id"], skill_ids),
             )
-        if custom_skill_name.strip() and custom_skill_body.strip():
-            c.execute("insert into skills (employee_id, name, body) values (%s, %s, %s)", (emp["id"], custom_skill_name.strip(), custom_skill_body.strip()))
+        for i in new_skill_on:
+            if i < len(new_skill_name) and new_skill_name[i].strip() and new_skill_body[i].strip():
+                c.execute("insert into skills (employee_id, name, body) values (%s, %s, %s) on conflict do nothing",
+                          (emp["id"], new_skill_name[i].strip(), new_skill_body[i].strip()))
     return RedirectResponse(f"/employees/{emp['id']}", status_code=303)
 
 
@@ -105,8 +118,8 @@ def employee(request: Request, eid: int):
 
 
 @app.post("/employees/{eid}/settings", dependencies=[Depends(auth)])
-def employee_settings(eid: int, firm_notes: str = Form(""), model: str = Form(llm.DEFAULT_MODEL), role: str = Form(...)):
-    db.q("update employees set firm_notes = %s, model = %s, role = %s where id = %s", (firm_notes.strip(), model, role.strip(), eid))
+def employee_settings(eid: int, firm_notes: str = Form(""), model: str = Form(llm.DEFAULT_MODEL), role: str = Form(...), job_description: str = Form("")):
+    db.q("update employees set firm_notes = %s, model = %s, role = %s, job_description = %s where id = %s", (firm_notes.strip(), model, role.strip(), job_description.strip(), eid))
     return RedirectResponse(f"/employees/{eid}", status_code=303)
 
 

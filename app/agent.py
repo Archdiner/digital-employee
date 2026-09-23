@@ -40,7 +40,7 @@ WORKSPACE_TOOLS = [
 
 INSTRUCTIONS = """You are {name}, a {role} at {firm}. Today is {today}.
 
-You work from documents and a fact store. You have skills (plain text, read them), firm notes, and a work log kept for you.{workspace_note}
+{job_description}You work from documents and a fact store. You have skills (plain text, read them), firm notes, and a work log kept for you.{workspace_note}
 
 Non-negotiable:
 - Numbers in anything you write come only from the fact store, referenced as {{{{fact:ID}}}}. You never type a figure yourself. Derived figures come from the compute tool.
@@ -57,7 +57,8 @@ def instructions_for(emp, linked=()):
         note = ("\nLinked accounts: " + ", ".join(linked) + ". You can search, read and import their files, create new documents there "
                 "(docx, pptx, xlsx, or native Google Docs/Sheets/Slides), and edit existing shared spreadsheets and documents in place. "
                 "Import a file before citing numbers from it. When the task names a file, find it there first.")
-    return INSTRUCTIONS.format(name=emp["name"], role=emp["role"], firm=emp["firm"], today=date.today().isoformat(), workspace_note=note)
+    jd = f"Your job description, as hired:\n{emp['job_description'].strip()}\n\n" if emp.get("job_description") else ""
+    return INSTRUCTIONS.format(name=emp["name"], role=emp["role"], firm=emp["firm"], today=date.today().isoformat(), workspace_note=note, job_description=jd)
 
 
 def tools_for(emp):

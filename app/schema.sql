@@ -106,3 +106,6 @@ alter table documents add column if not exists run_id int references runs(id) on
 create index if not exists documents_run on documents(run_id);
 -- A run is a conversation: the first message is the task, later messages continue it.
 alter table runs add column if not exists title text;
+
+-- The job description the employee was hired against. Verbatim; goes into its instructions.
+alter table employees add column if not exists job_description text not null default '';

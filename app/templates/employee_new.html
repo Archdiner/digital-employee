@@ -1,25 +1,54 @@
 {% extends "base.html" %}{% block crumb %}<span class="crumb">/ new employee</span>{% endblock %}{% block body %}
 <h1>New employee</h1>
-<form method="post" action="/employees">
-<div class="card"><div class="row">
-  <div><label>Name</label><input type="text" name="name" required placeholder="Summer Analyst"></div>
-  <div><label>Firm</label><input type="text" name="firm" required placeholder="Investcorp"></div>
-  <div><label>Model</label><select name="model">{% for m in models %}<option>{{m}}</option>{% endfor %}</select></div>
-</div>
-<label>Role, one line: the job</label><input type="text" name="role" required placeholder="Write the quarterly portfolio review for the CFO">
-<label>Firm notes: how the firm works. Funds, companies, terms, where files and numbers live.</label>
-<textarea class="tall" name="firm_notes" placeholder="Funds: Fund III (2019 vintage, 8 companies), Fund IV.
-Quarterly numbers: the management accounts pack per company, file ending _FINAL, Summary tab.
-EBITDA means adjusted EBITDA as reported in the pack unless stated.
-Past reviews: uploaded here as 'past review'. Match their layout."></textarea>
-</div>
-<div class="card"><h2 style="margin-top:0">Initial skills</h2>
-<p class="small muted">General finance skills, written once and reused everywhere. The employee gets its own copy; what it learns on the job stays with the firm.</p>
-{% for s in general %}<label class="check"><input type="checkbox" name="skill_ids" value="{{s.id}}" checked> <span><b>{{s.name}}</b><br><span class="muted small">{{s.when_to_use}}</span></span></label>{% endfor %}
-<div class="row" style="margin-top:14px"><div><label>Custom skill name (optional)</label><input type="text" name="custom_skill_name" placeholder="investcorp-review-format"></div></div>
-<label>Custom skill body. First line: when to use it.</label><textarea class="tall" name="custom_skill_body" placeholder="Use when writing any document for Investcorp.
-..."></textarea>
-</div>
-<button type="submit">Create employee</button>
+
+{% if not draft %}
+<form method="post" action="/employees/draft" class="card">
+<h2 style="margin-top:0">1. Paste the job description</h2>
+<div class="row"><div><label>Firm</label><input type="text" name="firm" placeholder="Investcorp"></div>
+<div style="flex:0 1 220px"><label>Model</label><select name="model">{% for m in models %}<option>{{m}}</option>{% endfor %}</select></div></div>
+<label>Job description</label><textarea class="tall" name="job_description" required placeholder="Employment Position: Analyst
+Department: Financial Management
+Reporting Line: Vice President – Financial Management
+1. Analyze financial data to identify trends and patterns.
+2. Prepare financial reports and forecasts. ..."></textarea>
+<div style="margin-top:10px"><button>Draft the setup</button> <span class="small muted">It proposes a role line, which general skills apply, new skills for uncovered duties, and questions for the firm. You approve every line. Nothing is saved yet.</span></div>
 </form>
+<p class="small muted">Or <a href="#manual" onclick="document.getElementById('manual').open=true">set it up by hand</a>.</p>
+{% endif %}
+
+<details id="manual" class="card" {% if draft %}open{% endif %}>
+<summary><h2 style="display:inline;margin:0">{% if draft %}2. Approve the setup{% else %}Manual setup{% endif %}</h2></summary>
+<form method="post" action="/employees">
+<div class="row" style="margin-top:12px">
+  <div><label>Name</label><input type="text" name="name" required value="{{draft.name if draft else ''}}" placeholder="Summer Analyst"></div>
+  <div><label>Firm</label><input type="text" name="firm" required value="{{draft.firm if draft else ''}}" placeholder="Investcorp"></div>
+  <div style="flex:0 1 220px"><label>Model</label><select name="model">{% for m in models %}<option {% if draft and m == draft.model %}selected{% endif %}>{{m}}</option>{% endfor %}</select></div>
+</div>
+<label>Role, one line</label><input type="text" name="role" required value="{{draft.role if draft else ''}}" placeholder="Write the quarterly portfolio review for the CFO">
+<label>Job description (kept verbatim; the employee reads it)</label><textarea class="tall" name="job_description" style="min-height:120px">{{draft.job_description if draft else ''}}</textarea>
+
+{% if draft and draft.questions_for_the_firm %}
+<div class="question" style="margin:14px 0"><b>What the firm needs to tell it</b> <span class="small muted">— answer what you can in the firm notes below; the rest it will ask when it matters</span>
+<ol class="small">{% for q in draft.questions_for_the_firm %}<li>{{q}}</li>{% endfor %}</ol></div>
+{% endif %}
+<label>Firm notes: how the firm works. Funds, companies, terms, where files and numbers live.</label>
+<textarea class="tall" name="firm_notes" placeholder="Quarterly numbers: the management accounts pack per company, file ending _FINAL, Summary tab.
+EBITDA means adjusted EBITDA as reported in the pack unless stated.
+Budget lives in the FY26 Budget workbook, Consolidated tab. Forecast is re-cut every quarter."></textarea>
+
+<h2>General skills</h2>
+<p class="small muted">Written once, reused everywhere. {% if draft %}Ticked = the draft thinks it applies to this job.{% endif %}</p>
+{% for s in general %}<label class="check"><input type="checkbox" name="skill_ids" value="{{s.id}}" {% if not draft or s.name in draft.use_general %}checked{% endif %}> <span><b>{{s.name}}</b><br><span class="muted small">{{s.when_to_use}}</span></span></label>{% endfor %}
+
+<h2>Skills for this job {% if draft %}<span class="muted small" style="font-weight:400">— proposed for duties no general skill covers. Edit freely; untick to drop.</span>{% endif %}</h2>
+{% set news = draft.new_skills if draft else [{"name": "", "body": ""}] %}
+{% for ns in news %}
+<details class="skill" open><summary><label class="check" style="display:inline-flex;margin:0"><input type="checkbox" name="new_skill_on" value="{{loop.index0}}" {% if draft %}checked{% endif %}> <b>{{ns.name or 'custom skill'}}</b></label></summary>
+<div class="row"><div><label>Name</label><input type="text" name="new_skill_name" value="{{ns.name}}" placeholder="budget-and-forecast-cycle"></div></div>
+<label>Body. First line: when to use it.</label><textarea class="tall" name="new_skill_body" placeholder="Use when ...">{{ns.body}}</textarea>
+</details>
+{% endfor %}
+<div style="margin-top:14px"><button type="submit">Create employee</button></div>
+</form>
+</details>
 {% endblock %}

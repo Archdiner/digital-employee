@@ -54,6 +54,7 @@ Make a 5-slide deck of the Atlas situation."></textarea>
 <div class="card"><form method="post" action="/employees/{{emp.id}}/settings">
 <label>Role</label><input type="text" name="role" value="{{emp.role}}">
 <label>Firm notes</label><textarea class="tall" name="firm_notes">{{emp.firm_notes}}</textarea>
+<label>Job description (as hired)</label><textarea class="tall" name="job_description">{{emp.job_description}}</textarea>
 <label>Model</label><select name="model">{% for m in models %}<option {% if m == emp.model %}selected{% endif %}>{{m}}</option>{% endfor %}{% if emp.model not in models %}<option selected>{{emp.model}}</option>{% endif %}</select>
 <div style="margin-top:10px"><button class="quiet">Save</button></div></form></div>
 {% endblock %}

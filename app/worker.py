@@ -52,5 +52,14 @@ def loop():
             time.sleep(POLL_SECONDS)
 
 
+def recover_orphans():
+    """A deploy or crash can leave work marked running. Put it back in the queue; state is saved after every model turn."""
+    n = db.q("update runs set status = 'queued' where status = 'running' returning id")
+    m = db.q("update documents set extract_status = 'queued' where extract_status = 'running' returning id")
+    if n or m:
+        print(f"worker: requeued {len(n)} runs, {len(m)} documents")
+
+
 def start_background():
+    recover_orphans()
     threading.Thread(target=loop, daemon=True, name="worker").start()

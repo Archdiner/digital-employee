@@ -127,16 +127,22 @@ def tool_read_document(run, emp, args):
 
 
 def tool_search_facts(run, emp, args):
-    words = [w for w in re.split(r"\s+", args["query"].strip()) if w]
+    words = [w for w in re.split(r"\s+", args["query"].strip()) if w][:12]
     limit = min(int(args.get("limit") or 60), 200)
-    clauses = " and ".join(["concat_ws(' ', f.entity, f.metric, f.period, f.source_location, d.filename, f.formula) ilike %s"] * len(words)) or "true"
+    if not words:
+        return "empty query"
+    hay = "concat_ws(' ', f.entity, f.metric, f.period, f.source_location, d.filename, f.formula)"
+    score = " + ".join([f"(case when {hay} ilike %s then 1 else 0 end)"] * len(words))
+    need = (len(words) + 1) // 2  # at least half the words must match; ranked by how many do
     rows = db.q(
-        f"""select f.*, d.filename from facts f left join documents d on d.id = f.document_id
-            where f.employee_id = %s and {clauses} order by f.doc_date desc nulls last, f.id limit %s""",
-        [emp["id"], *[f"%{w}%" for w in words], limit],
+        f"""select * from (
+              select f.*, d.filename, ({score}) as score
+              from facts f left join documents d on d.id = f.document_id where f.employee_id = %s) x
+            where score >= %s order by score desc, doc_date desc nulls last, id limit %s""",
+        [*[f"%{w}%" for w in words], emp["id"], need, limit],
     )
     db.log(run["id"], "search_facts", query=args["query"], hits=len(rows), fact_ids=[r["id"] for r in rows])
-    return "\n".join(fact_line(r) for r in rows) or "no facts match"
+    return "\n".join(fact_line(r) for r in rows) or "no facts match (try fewer or different words)"
 
 
 _NUM = re.compile(r"[-+]?\d*\.?\d+")
@@ -178,6 +184,7 @@ def tool_compute(run, emp, args):
 
 
 def tool_ask_user(run, emp, args):
+    args["question"] = render.fill(args["question"], lambda fid: get_fact(emp["id"], fid))
     db.log(run["id"], "ask_user", question=args["question"])
     return "__ASK__"
 
@@ -377,7 +384,7 @@ def run(run_id: int, max_turns: int = 60):
             state.extend(items)
             calls = [i for i in items if i.get("type") == "function_call"]
             if not calls:
-                note = resp.output_text.strip()
+                note = render.fill(resp.output_text.strip(), lambda fid: get_fact(emp["id"], fid))
                 db.q("update runs set status = 'done', notes = %s, state = %s, finished_at = now() where id = %s", (note, Jsonb(state), run_id))
                 db.log(run_id, "finish")
                 return
@@ -412,7 +419,8 @@ def say(run_id: int, text: str):
 
 def transcript(run_id: int):
     """The conversation as the user sees it: their messages, the employee's replies, files produced. Tool calls stay in the log."""
-    r = db.q("select state from runs where id = %s", (run_id,), one=True)
+    r = db.q("select state, employee_id from runs where id = %s", (run_id,), one=True)
+    fill = lambda t: render.fill(t, lambda fid: get_fact(r["employee_id"], fid))  # noqa: E731
     files = {d["id"]: d for d in db.q("select id, filename, created_at from documents where run_id = %s order by id", (run_id,))}
     out = []
     for item in r["state"] or []:
@@ -421,7 +429,7 @@ def transcript(run_id: int):
         elif item.get("type") == "message" and item.get("role") == "assistant":
             text = "".join(c.get("text", "") for c in item.get("content", []) if c.get("type") == "output_text").strip()
             if text:
-                out.append({"who": "employee", "text": text})
+                out.append({"who": "employee", "text": fill(text)})
         elif item.get("type") == "function_call_output" and str(item.get("output", "")).startswith(("Document written: #", "Created document #")):
             m = re.search(r"#(\d+)", item["output"])
             d = files.get(int(m.group(1))) if m else None

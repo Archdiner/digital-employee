@@ -102,3 +102,11 @@ def build(spec, get_fact):
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue(), sorted(cited)
+
+
+def fill(text, get_fact):
+    """For chat and questions: replace fact references with their values. No rejection, no checking."""
+    def repl(m):
+        f = get_fact(int(m.group(1)))
+        return fact_text(f, bare=m.group(2) == "v") if f else m.group(0)
+    return FACT_REF.sub(repl, text or "")

@@ -25,9 +25,10 @@ PLAIN_NUMBER = re.compile(r"^\(?-?\d+(\.\d+)?\)?$")
 
 
 def fact_value(f):
-    """The stored value, with thousands separators added when the source wrote a bare number. Precision is never changed."""
+    """The stored value, with thousands separators added when the source wrote a bare amount. Precision is never changed.
+    Only values with a unit get separators: a value without one may be a code (account 4000, ref 2024-03)."""
     v = f["value"].strip()
-    if PLAIN_NUMBER.match(v) and "," not in v:
+    if (f.get("unit") or "").strip() and PLAIN_NUMBER.match(v) and "," not in v:
         neg = v.startswith("(")
         num = v.strip("()")
         whole, _, frac = num.partition(".")

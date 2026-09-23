@@ -12,7 +12,13 @@ FACTS = {
     3: {"id": 3, "value": "(3125.5)", "unit": "USD 000s"},
     4: {"id": 4, "value": "5.5", "unit": "%"},
     5: {"id": 5, "value": "4.3", "unit": "x"},
+    6: {"id": 6, "value": "4000", "unit": None},
 }
+
+
+def test_codes_without_units_keep_their_digits():
+    paras, _, _ = build("Reconciled to TB account {{fact:6}}.")
+    assert paras[-1] == "Reconciled to TB account 4000."
 
 
 def build(paragraph, table=None):

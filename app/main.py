@@ -31,8 +31,8 @@ def auth(creds: HTTPBasicCredentials | None = Depends(security)):
 
 @app.on_event("startup")
 def startup():
-    db.init()
     if MODE in ("all", "worker"):
+        db.init()  # schema + general skills; the worker tier owns migrations, the web tier only reads and enqueues
         worker.start_background()
 
 

@@ -5,3 +5,4 @@ __pycache__/
 *.docx
 !tests/fixtures/*.docx
 .DS_Store
+.vercel

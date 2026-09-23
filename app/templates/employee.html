@@ -36,7 +36,7 @@ Make a 5-slide deck of the Atlas situation."></textarea>
 </form>
 <p class="small muted">Facts are extracted in the background after upload. Refresh to see counts.</p>
 {% if docs %}<table><tr><th>#</th><th>file</th><th>kind</th><th>date</th><th>text</th><th>facts</th><th></th></tr>
-{% for d in docs %}<tr><td>{{d.id}}</td><td><a href="/documents/{{d.id}}">{{d.filename}}</a></td><td>{{d.kind}}</td><td>{{d.doc_date or '—'}}</td><td>{{ '{:,}'.format(d.chars or 0) }} chars</td><td>{{d.facts}}</td>
+{% for d in docs %}<tr><td>{{d.id}}</td><td><a href="/documents/{{d.id}}">{{d.filename}}</a></td><td>{{d.kind}}</td><td>{{d.doc_date or '—'}}</td><td>{{ '{:,}'.format(d.chars or 0) }} chars</td><td>{{d.facts}}{% if d.extract_status in ('queued','running') %} <span class="pill running">extracting</span>{% elif d.extract_status == 'failed' %} <span class="pill failed">failed</span>{% endif %}</td>
 <td style="white-space:nowrap">{% if d.kind != 'output' %}<form method="post" action="/employees/{{emp.id}}/documents/{{d.id}}/reextract" style="display:inline"><button class="quiet" style="padding:4px 8px;font-size:12px">re-extract</button></form>{% endif %}
 <form method="post" action="/employees/{{emp.id}}/documents/{{d.id}}/delete" style="display:inline" onsubmit="return confirm('Delete {{d.filename}} and its facts?')"><button class="danger">delete</button></form></td></tr>{% endfor %}</table>{% endif %}
 </div>

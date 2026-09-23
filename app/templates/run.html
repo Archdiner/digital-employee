@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block title %}{{r.title or r.task[:60]}} · {{r.emp_name}}{% endblock %}
 {% block crumb %}<span class="crumb">/ <a href="/employees/{{r.employee_id}}">{{r.emp_name}}</a> / {{r.title or ('run #' ~ r.id)}}</span>{% endblock %}{% block body %}
-{% if r.status == 'running' %}<meta http-equiv="refresh" content="5">{% endif %}
+{% if r.status in ('running','queued') %}<meta http-equiv="refresh" content="5">{% endif %}
 <h1 style="display:flex;justify-content:space-between;align-items:baseline"><span>{{r.emp_name}} <span class="muted" style="font-weight:400">· {{r.firm}}</span></span><span class="pill {{r.status}}">{{r.status}}</span></h1>
 
 <div class="chat">
@@ -9,11 +9,11 @@
   {% elif m.who == 'employee' %}<div class="msg emp"><div class="bubble"><pre class="note">{{m.text}}</pre></div></div>
   {% else %}<div class="msg emp"><div class="bubble file">📄 <a class="btn" href="/documents/{{m.doc.id}}">Download {{m.doc.filename}}</a></div></div>{% endif %}
 {% endfor %}
-{% if r.status == 'running' %}<div class="msg emp"><div class="bubble muted">working… (this page refreshes itself)</div></div>{% endif %}
+{% if r.status in ('running','queued') %}<div class="msg emp"><div class="bubble muted">{{ 'working…' if r.status == 'running' else 'picking it up…' }} (this page refreshes itself)</div></div>{% endif %}
 {% if r.error %}<div class="msg emp"><div class="bubble" style="border-color:var(--bad)"><b>Something broke</b><pre class="note">{{r.error[-1500:]}}</pre><form method="post" action="/runs/{{r.id}}/retry"><button class="quiet">Retry from where it stopped</button></form></div></div>{% endif %}
 </div>
 
-{% if r.status != 'running' %}
+{% if r.status not in ('running','queued') %}
 <form method="post" action="/runs/{{r.id}}/say" class="card composer">
 <textarea name="text" required placeholder="{% if r.status == 'waiting' %}Answer its question. Work resumes when you send it.{% else %}Reply, correct it, or ask for the next thing.{% endif %}"></textarea>
 <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center"><button>Send</button><span class="small muted">Files it makes appear above with a download link, or in Drive / OneDrive if you asked for that.</span></div>

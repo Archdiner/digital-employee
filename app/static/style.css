@@ -18,7 +18,7 @@ th { color:var(--muted); font-weight:600; font-size:12px; text-transform:upperca
 .muted { color:var(--muted); } .small { font-size:13px; }
 .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); }
 .pill.done { color:var(--ok); border-color:var(--ok); } .pill.running { color:var(--accent); border-color:var(--accent); }
-.pill.waiting { color:var(--warn); border-color:var(--warn); } .pill.failed { color:var(--bad); border-color:var(--bad); }
+.pill.queued { color:var(--muted); } .pill.waiting { color:var(--warn); border-color:var(--warn); } .pill.failed { color:var(--bad); border-color:var(--bad); }
 .skill { border-top:1px solid var(--line); padding:10px 0; } .skill:first-child { border-top:0; }
 .skill summary { cursor:pointer; } .skill pre { white-space:pre-wrap; font:13px/1.45 ui-monospace, Menlo, monospace; background:#f6f6f3; padding:10px; border-radius:6px; }
 pre.note { white-space:pre-wrap; background:#f6f6f3; padding:12px; border-radius:6px; font:14px/1.5 inherit; }

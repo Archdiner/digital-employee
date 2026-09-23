@@ -6,7 +6,7 @@ Any Azure OpenAI deployment name works in MODEL.
 import json
 import os
 
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from azure.identity import ClientAssertionCredential, DefaultAzureCredential, get_bearer_token_provider
 from openai import AzureOpenAI
 
 RESOURCE = os.environ.get("AZURE_OPENAI_RESOURCE", "zybit-project-resource")
@@ -16,10 +16,17 @@ EFFORT = os.environ.get("REASONING_EFFORT", "high")
 _client = None
 
 
+def credential():
+    """Managed identity in Azure, az login locally, Vercel OIDC token exchanged for an Entra token on Vercel. No keys anywhere."""
+    if os.environ.get("VERCEL_OIDC_TOKEN") and os.environ.get("MS_CLIENT_ID") and os.environ.get("AZURE_TENANT_ID"):
+        return ClientAssertionCredential(os.environ["AZURE_TENANT_ID"], os.environ["MS_CLIENT_ID"], lambda: os.environ["VERCEL_OIDC_TOKEN"])
+    return DefaultAzureCredential()
+
+
 def client() -> AzureOpenAI:
     global _client
     if _client is None:
-        token = get_bearer_token_provider(DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
+        token = get_bearer_token_provider(credential(), "https://cognitiveservices.azure.com/.default")
         _client = AzureOpenAI(
             base_url=f"https://{RESOURCE}.openai.azure.com/openai/v1/",
             azure_ad_token_provider=token,

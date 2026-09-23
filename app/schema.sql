@@ -109,3 +109,8 @@ alter table runs add column if not exists title text;
 
 -- The job description the employee was hired against. Verbatim; goes into its instructions.
 alter table employees add column if not exists job_description text not null default '';
+
+-- Work queue. The web tier only writes rows; a worker (in the container) claims and executes them.
+alter table documents add column if not exists extract_status text not null default 'done';   -- queued | running | done | failed
+create index if not exists documents_extract_queue on documents(extract_status) where extract_status = 'queued';
+create index if not exists runs_queue on runs(status) where status = 'queued';

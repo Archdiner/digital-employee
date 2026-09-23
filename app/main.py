@@ -2,7 +2,6 @@
 The client (the CFO) never sees this. He sees Teams and a document."""
 import os
 import secrets
-import threading
 from pathlib import Path
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request, UploadFile
@@ -11,7 +10,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import agent, connections, db, extract, gws, llm, m365, setup, textract
+from . import agent, connections, db, gws, llm, m365, setup, textract, worker
 
 HERE = Path(__file__).parent
 app = FastAPI(title="Digital Employee")
@@ -20,6 +19,7 @@ templates = Jinja2Templates(directory=HERE / "templates")
 security = HTTPBasic(auto_error=False)
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 MODELS = [m.strip() for m in os.environ.get("MODELS", llm.DEFAULT_MODEL).split(",") if m.strip()]
+MODE = os.environ.get("MODE", "all")  # all = web + in-process worker (the container) | web = enqueue only (Vercel) | worker
 
 
 def auth(creds: HTTPBasicCredentials | None = Depends(security)):
@@ -32,14 +32,12 @@ def auth(creds: HTTPBasicCredentials | None = Depends(security)):
 @app.on_event("startup")
 def startup():
     db.init()
+    if MODE in ("all", "worker"):
+        worker.start_background()
 
 
 def page(request, name, **ctx):
     return templates.TemplateResponse(request, name, ctx)
-
-
-def in_thread(fn, *args):
-    threading.Thread(target=fn, args=args, daemon=True).start()
 
 
 @app.get("/healthz")
@@ -107,7 +105,7 @@ def employee(request: Request, eid: int):
         raise HTTPException(404)
     skills = db.q("select * from skills where employee_id = %s order by name", (eid,))
     docs = db.q(
-        """select d.id, d.filename, d.kind, d.doc_date, d.created_at, length(d.text) as chars,
+        """select d.id, d.filename, d.kind, d.doc_date, d.created_at, length(d.text) as chars, d.extract_status,
                   (select count(*) from facts f where f.document_id = d.id) as facts
            from documents d where d.employee_id = %s order by d.id desc""", (eid,))
     runs = db.q("select id, task, status, created_at, finished_at, output_document_id from runs where employee_id = %s order by id desc", (eid,))
@@ -143,24 +141,21 @@ def skill_delete(eid: int, sid: int):
 
 @app.post("/employees/{eid}/documents", dependencies=[Depends(auth)])
 async def document_upload(eid: int, files: list[UploadFile], kind: str = Form("source")):
-    emp = db.q("select model from employees where id = %s", (eid,), one=True)
     for f in files:
         data = await f.read()
         if not data:
             continue
         text = textract.extract_text(f.filename, data)
-        row = db.q(
-            "insert into documents (employee_id, filename, kind, content_type, bytes, text) values (%s, %s, %s, %s, %s, %s) returning id",
-            (eid, f.filename, kind, f.content_type, data, text), one=True,
+        db.q(
+            "insert into documents (employee_id, filename, kind, content_type, bytes, text, extract_status) values (%s, %s, %s, %s, %s, %s, 'queued')",
+            (eid, f.filename, kind, f.content_type, data, text),
         )
-        in_thread(extract.extract_facts, eid, row["id"], emp["model"])
     return RedirectResponse(f"/employees/{eid}#documents", status_code=303)
 
 
 @app.post("/employees/{eid}/documents/{did}/reextract", dependencies=[Depends(auth)])
 def document_reextract(eid: int, did: int):
-    emp = db.q("select model from employees where id = %s", (eid,), one=True)
-    in_thread(extract.extract_facts, eid, did, emp["model"])
+    db.q("update documents set extract_status = 'queued' where id = %s and employee_id = %s", (did, eid))
     return RedirectResponse(f"/employees/{eid}#documents", status_code=303)
 
 
@@ -196,17 +191,16 @@ def facts(request: Request, eid: int, q: str = ""):
 
 @app.post("/employees/{eid}/runs", dependencies=[Depends(auth)])
 def run_create(eid: int, task: str = Form(...)):
-    row = db.q("insert into runs (employee_id, task, title) values (%s, %s, %s) returning id", (eid, task.strip(), task.strip()[:80]), one=True)
-    in_thread(agent.run, row["id"])
+    row = db.q("insert into runs (employee_id, task, title, status) values (%s, %s, %s, 'queued') returning id", (eid, task.strip(), task.strip()[:80]), one=True)
     return RedirectResponse(f"/runs/{row['id']}", status_code=303)
 
 
 @app.post("/runs/{rid}/say", dependencies=[Depends(auth)])
 def run_say(rid: int, text: str = Form(...)):
     r = db.q("select status from runs where id = %s", (rid,), one=True)
-    if r["status"] == "running":
+    if r["status"] in ("running", "queued"):
         raise HTTPException(409, "still working; wait for it to finish")
-    in_thread(agent.answer, rid, text.strip())
+    agent.say(rid, text.strip())
     return RedirectResponse(f"/runs/{rid}", status_code=303)
 
 
@@ -222,14 +216,13 @@ def run_view(request: Request, rid: int, explained: str = ""):
 
 @app.post("/runs/{rid}/answer", dependencies=[Depends(auth)])
 def run_answer(rid: int, answer: str = Form(...)):
-    in_thread(agent.answer, rid, answer.strip())
+    agent.say(rid, answer.strip())
     return RedirectResponse(f"/runs/{rid}", status_code=303)
 
 
 @app.post("/runs/{rid}/retry", dependencies=[Depends(auth)])
 def run_retry(rid: int):
-    db.q("update runs set status = 'running', error = null, finished_at = null where id = %s", (rid,))
-    in_thread(agent.run, rid)
+    db.q("update runs set status = 'queued', error = null, finished_at = null where id = %s", (rid,))
     return RedirectResponse(f"/runs/{rid}", status_code=303)
 
 
@@ -278,7 +271,6 @@ def workspace(request: Request, eid: int, provider: str = "google", q: str = "")
 
 @app.post("/employees/{eid}/workspace/import", dependencies=[Depends(auth)])
 def workspace_import(eid: int, provider: str = Form(...), file_id: str = Form(...), drive_id: str = Form(""), kind: str = Form("source")):
-    emp = db.q("select model from employees where id = %s", (eid,), one=True)
     tok = connections.token(eid, provider)
     if provider == "google":
         name, mime, data = gws.download(tok, file_id)
@@ -286,7 +278,6 @@ def workspace_import(eid: int, provider: str = Form(...), file_id: str = Form(..
     else:
         name, mime, data = m365.download(tok, drive_id, file_id)
         text = textract.extract_text(name, data)
-    row = db.q("insert into documents (employee_id, filename, kind, content_type, bytes, text) values (%s, %s, %s, %s, %s, %s) returning id",
-               (eid, name, kind, mime, data, text), one=True)
-    in_thread(extract.extract_facts, eid, row["id"], emp["model"])
+    db.q("insert into documents (employee_id, filename, kind, content_type, bytes, text, extract_status) values (%s, %s, %s, %s, %s, %s, 'queued')",
+         (eid, name, kind, mime, data, text))
     return RedirectResponse(f"/employees/{eid}#documents", status_code=303)

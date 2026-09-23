@@ -400,14 +400,14 @@ def run(run_id: int, max_turns: int = 60):
         db.log(run_id, "error", error=err[-2000:])
 
 
-def answer(run_id: int, text: str):
-    """A follow-up message in the conversation: an answer to its question, a correction, or the next request."""
+def say(run_id: int, text: str):
+    """A follow-up message in the conversation: an answer to its question, a correction, or the next request.
+    Appends and queues; the worker continues the run."""
     r = db.q("select state, status from runs where id = %s", (run_id,), one=True)
     state = list(r["state"] or [])
     state.append({"role": "user", "content": text})
-    db.q("update runs set state = %s, answer = %s, notes = null, finished_at = null where id = %s", (Jsonb(state), text, run_id))
+    db.q("update runs set state = %s, answer = %s, notes = null, finished_at = null, status = 'queued' where id = %s", (Jsonb(state), text, run_id))
     db.log(run_id, "message" if r["status"] != "waiting" else "answer", text=text)
-    run(run_id)
 
 
 def transcript(run_id: int):

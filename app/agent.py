@@ -431,6 +431,11 @@ def transcript(run_id: int):
             text = "".join(c.get("text", "") for c in item.get("content", []) if c.get("type") == "output_text").strip()
             if text:
                 out.append({"who": "employee", "text": fill(text)})
+        elif item.get("type") == "function_call" and item.get("name") == "ask_user":
+            try:
+                out.append({"who": "employee", "text": fill(json.loads(item.get("arguments") or "{}").get("question", ""))})
+            except json.JSONDecodeError:
+                pass
         elif item.get("type") == "function_call_output" and str(item.get("output", "")).startswith(("Document written: #", "Created document #")):
             m = re.search(r"#(\d+)", item["output"])
             d = files.get(int(m.group(1))) if m else None

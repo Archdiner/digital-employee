@@ -10,7 +10,11 @@ FACT_REF = re.compile(r"\{\{\s*fact:(\d+)(?::(v))?\s*\}\}")  # {{fact:12}} = val
 # Numbers that are labels, not facts: years, quarters/halves, FY labels, list numbering, ordinals.
 LABEL_OK = re.compile(r"^0+$|^(19|20)\d\d$|^(q|h)[1-4]$|^fy\d{2,4}$|^\d{1,2}\.$|^\d{1,2}(st|nd|rd|th)$", re.I)
 MONTH = re.compile(r"\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", re.I)
-NUMBER = re.compile(r"(?<![a-z])[-(]?\d[\d,]*\.?\d*%?\)?(st|nd|rd|th)?", re.I)
+NUMBER = re.compile(r"(?<![a-z0-9])[-(]?\d[\d,]*\.?\d*%?\)?(st|nd|rd|th)?", re.I)
+# Period labels are removed before scanning: Aug-26, August 2026, FY26, FY 2026, Q2, Q2 2026, H1 26, 2026/27.
+LABELS = re.compile(
+    r"\b(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[-' ]?\d{2,4}"
+    r"|fy\s?\d{2,4}(?:/\d{2,4})?|(?:q|h)[1-4](?:\s?\d{2,4})?|[12]h\s?\d{2,4}|(?:19|20)\d\d(?:/\d{2,4})?)\b", re.I)
 
 
 class ReviewError(Exception):
@@ -56,6 +60,7 @@ def substitute(text, get_fact, cited, problems, where):
 
     out = FACT_REF.sub(repl, text)
     scan = re.sub(MARK + "[^" + MARK + "]*" + MARK, " ", out)
+    scan = LABELS.sub(" ", scan)
     for m in NUMBER.finditer(scan):
         raw = m.group(0).strip("()")
         tok = raw.rstrip(".,;:")

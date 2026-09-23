@@ -38,6 +38,11 @@ def test_labels_are_not_numbers():
     assert paras
 
 
+@pytest.mark.parametrize("text", ["FY26 forecast update", "Aug-26 actual vs Aug-26 budget", "Sep-Dec run-rate", "FY 2026/27 plan", "1H26 results", "August 2026 pack"])
+def test_period_labels_pass(text):
+    assert build(text)[0]
+
+
 @pytest.mark.parametrize("text", ["Revenue was 47,310.", "up 8% on the quarter", "Headcount 431", "Fact {{fact:99}} missing"])
 def test_stray_numbers_and_missing_facts_are_rejected(text):
     with pytest.raises(render.ReviewError):
